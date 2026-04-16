@@ -1,0 +1,3 @@
+SnowparkSQLException: (1304): 01c3c1a0-0001-a7ae-01a2-ce0100d0c63f: 000904 (42000): SQL compilation error: error line 53 at position 50
+invalid identifier '_'
+There are existing quoted column identifiers: ['"MONTH_OF_SALE"', '"NUM_DAYS_MONTH"', '"FESTIVE_PHASE_I"', '"FESTIVE_PHASE_II"', '"FESTIVE_PHASE_III"', '"Pitru_Paksh"', '"TOTAL_DAYS_FESTIVE_PHASE_I"', '"TOTAL_DAYS_FESTIVE_PHASE_II"', '"TOTAL_DAYS_FESTIVE_PHASE_III"', '"TOTAL_DAYS_Pitru_Paksh"', ...]. Please use one of them to reference the column. See more details on Snowflake identifier requirements https://docs.snowflake.com/en/sql-reference/identifiers-syntax
