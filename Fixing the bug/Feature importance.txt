@@ -1,0 +1,32 @@
+<class 'list'>
+List of 100 series
+First item type : <class 'pandas.core.frame.DataFrame'>
+First item shape: (1, 56)
+   ONAM_DAYS_futcov  NAG_PANCHAMI_DAYS_futcov  NEW_YEAR_DAYS_futcov  \
+0               0.0                       0.0                   0.0   
+
+   PITRAPAKSHA_DAYS_futcov  REPUBLIC_DAY_DAYS_futcov  \
+0                      0.0                       0.0   
+
+   VASANT_PANCHAMI_DAYS_futcov  MARRIAGE_DAYS_futcov  FESTIVE_PHASE_I_futcov  \
+0                          0.0                   0.0                     0.0   
+
+   FESTIVE_PHASE_II_futcov  FESTIVE_PHASE_III_futcov  ...  \
+0                      0.0                       0.0  ...   
+
+   KARWA_CHAUTH_DAYS_futcov  GOVARDHAN_POOJA_DAYS_futcov  \
+0                       0.1                          0.1   
+
+   GURU_PURNIMA_DAYS_futcov  darts_enc_fc_cus_custom_futcov  \
+0                       0.1                             0.1   
+
+   NAVRATRI_DAYS_futcov  MAHA_SHIVARATRI_DAYS_futcov  \
+0                   0.1                          0.1   
+
+   PROP_EVENT_FESTIVE_PHASE_I_futcov  VISHWAKARMA_PUJA_DAYS_futcov  \
+0                                0.1                           0.2   
+
+   PARENT_DEALER_CODE_futcov  RAKSHA_BANDHAN_DAYS_futcov  
+0                        0.4                        96.9  
+
+[1 rows x 56 columns]
