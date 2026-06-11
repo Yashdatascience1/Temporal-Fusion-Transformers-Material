@@ -1,0 +1,5 @@
+TFT (a new Deep learning based model) and Snowflake (status quo) were trained on nearly three years of sales history (Apr 2023–Dec 2025) and tested on the next four months they had never seen (Jan–Apr 2026) which makes it a fair, real-world test.
+
+On that test, TFT's forecasts were about 20% more accurate than Snowflake's, and the edge held in every one of the four months.
+
+TFT is most accurate on Hero's best-selling products which drive two-thirds of total sales which is exactly where forecast accuracy matters most for stocking decisions.
