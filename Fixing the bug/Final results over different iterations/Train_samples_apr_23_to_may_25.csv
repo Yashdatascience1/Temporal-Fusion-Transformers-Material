@@ -1,0 +1,6 @@
+Sample number,Training start date for the window,Training end date for the window,Prediction start date for the window,Prediction end date for the window
+1,Apr'23,Jul'24,Aug'24,Jan'25
+2,May'23,Aug'24,Sep'24,Feb'25
+3,Jun'23,Sep'24,Oct'24,Mar'25
+4,Jul'23,Oct'24,Nov'24,Apr'25
+5,Aug'23,Nov'24,Dec'24,May'25
