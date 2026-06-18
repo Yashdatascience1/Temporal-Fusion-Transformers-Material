@@ -1,0 +1,5 @@
+Sample number,Training start date for the window,Training end date for the window,Prediction start date for the window,Prediction end date for the window,Input chunk length (months),Output chunk length (months)
+1,Jun'24,Sep'25,Oct'25,Mar'26,16,6
+2,Jul'24,Oct'25,Nov'25,Apr'26,16,6
+3,Aug'24,Nov'25,Dec'25,May'26,16,6
+4,Sep'24,Dec'25,Jan'26,Jun'26,16,6
