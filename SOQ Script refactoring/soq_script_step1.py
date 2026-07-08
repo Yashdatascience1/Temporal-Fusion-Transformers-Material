@@ -26,8 +26,6 @@ def return_models_for_forecasting(session):
     return name_of_models
 
 
-
-
 def fetchSKUSupercedence_snowpark(session):
     data = session.sql("SELECT * FROM MOP_DATABASE.SOQ.SKU_SUPERCEDENCE") 
     data_1 = session.table("MOP_DATABASE.SOQ.MODEL_FAMILY_MAPPING") 
