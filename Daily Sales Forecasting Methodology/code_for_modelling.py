@@ -397,3 +397,27 @@ validation_forecasts = [
     for forecast in validation_forecasts
 ]
 
+records = []
+
+for forecast in validation_forecasts:
+
+    series_name = (
+        forecast.static_covariates[
+            "PARENT_DEALER_CODE_MODEL_FAMILY"
+        ].iloc[0]
+    )
+
+    indices = forecast.time_index
+    predictions = forecast.values().flatten()
+
+    for idx, pred in zip(indices, predictions):
+
+        records.append(
+            {
+                "PARENT_DEALER_CODE_MODEL_FAMILY": series_name,
+                "SERIES_INDEX": int(idx),
+                "PREDICTED_SALES": round(float(pred), 2),
+            }
+        )
+
+prediction_df = pd.DataFrame(records)
