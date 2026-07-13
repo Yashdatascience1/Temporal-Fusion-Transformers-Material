@@ -62,20 +62,20 @@ from darts.dataprocessing.transformers import (
 from darts.models import TFTModel
 
 
-df = pd.read_csv(
+data = pd.read_csv(
     "daily_festive_model_data.csv",
     parse_dates=["CAL_DATE"],
 )
 
-df = df.sort_values(
+data = data.sort_values(
     [
         "PARENT_DEALER_CODE_MODEL_FAMILY",
         "SERIES_INDEX",
     ]
 ).reset_index(drop=True)
 
-df.columns = (
-    df.columns
+data.columns = (
+    data.columns
       .str.strip()
       .str.replace('"', "", regex=False)
 )
@@ -88,7 +88,7 @@ required_columns = (
 
 missing_columns = [
     col for col in required_columns
-    if col not in df.columns
+    if col not in data.columns
 ]
 
 if missing_columns:
@@ -96,8 +96,8 @@ if missing_columns:
         f"Columns missing from dataframe: {missing_columns}"
     )
 
-df[festival_covariates] = (
-    df[festival_covariates]
+data[festival_covariates] = (
+    data[festival_covariates]
     .fillna(0)
     .astype("float32")
 )
@@ -112,16 +112,16 @@ weekday_mapping = {
     "SUNDAY": 6,
 }
 
-if df["DAY_OF_THE_WEEK"].dtype == "object":
-    df["DAY_OF_THE_WEEK"] = (
-        df["DAY_OF_THE_WEEK"]
+if data["DAY_OF_THE_WEEK"].dtype == "object":
+    data["DAY_OF_THE_WEEK"] = (
+        data["DAY_OF_THE_WEEK"]
         .str.upper()
         .map(weekday_mapping)
     )
 
-if df[future_covariates].isna().any().any():
+if data[future_covariates].isna().any().any():
     null_counts = (
-        df[future_covariates]
+        data[future_covariates]
         .isna()
         .sum()
     )
@@ -136,7 +136,7 @@ if df[future_covariates].isna().any().any():
     )
 
 static_nunique = (
-    df.groupby(group_col)[static_covariates]
+    data.groupby(group_col)[static_covariates]
       .nunique(dropna=False)
 )
 
@@ -159,35 +159,35 @@ if not changing_static_columns.empty:
         "Static covariates are not constant within series."
     )
 
-historical_df = df[
-    df["YEAR"].isin([2023, 2024, 2025])
+historical_data = data[
+    data["YEAR"].isin([2023, 2024, 2025])
 ].copy()
 
-future_2026_df = df[
-    df["YEAR"].eq(2026)
+future_2026_data = data[
+    data["YEAR"].eq(2026)
 ].copy()
 
 
-if historical_df[target_col].isna().any():
+if historical_data[target_col].isna().any():
     raise ValueError(
         "Historical NET_SALES contains missing values."
     )
 
-if future_2026_df[target_col].notna().any():
+if future_2026_data[target_col].notna().any():
     print(
         "Warning: Some 2026 NET_SALES values are populated. "
         "Ensure these are not placeholder zeroes."
     )
 
 
-target_input_df = historical_df[
+target_input_data = historical_data[
     [time_col, group_col, target_col]
     + static_covariates
 ].copy()
 
 
 target_series = TimeSeries.from_group_dataframe(
-    df=target_input_df,
+    data=target_input_data,
     group_cols=group_col,
     time_col=time_col,
     value_cols=target_col,
@@ -203,19 +203,19 @@ print("Last series index:", target_series[0].time_index[-5:])
 print("Static covariates:")
 print(target_series[0].static_covariates)
 
-training_covariate_df = historical_df[
+training_covariate_data = historical_data[
     [time_col, group_col]
     + future_covariates
 ].copy()
 
-all_covariate_df = df[
+all_covariate_data = data[
     [time_col, group_col]
     + future_covariates
 ].copy()
 
 training_future_covariates = (
     TimeSeries.from_group_dataframe(
-        df=training_covariate_df,
+        data=training_covariate_data,
         group_cols=group_col,
         time_col=time_col,
         value_cols=future_covariates,
@@ -226,7 +226,7 @@ training_future_covariates = (
 
 full_future_covariates = (
     TimeSeries.from_group_dataframe(
-        df=all_covariate_df,
+        data=all_covariate_data,
         group_cols=group_col,
         time_col=time_col,
         value_cols=future_covariates,
@@ -397,27 +397,3 @@ validation_forecasts = [
     for forecast in validation_forecasts
 ]
 
-records = []
-
-for forecast in validation_forecasts:
-
-    series_name = (
-        forecast.static_covariates[
-            "PARENT_DEALER_CODE_MODEL_FAMILY"
-        ].iloc[0]
-    )
-
-    indices = forecast.time_index
-    predictions = forecast.values().flatten()
-
-    for idx, pred in zip(indices, predictions):
-
-        records.append(
-            {
-                "PARENT_DEALER_CODE_MODEL_FAMILY": series_name,
-                "SERIES_INDEX": int(idx),
-                "PREDICTED_SALES": round(float(pred), 2),
-            }
-        )
-
-prediction_df = pd.DataFrame(records)
