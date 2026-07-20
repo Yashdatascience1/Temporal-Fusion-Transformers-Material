@@ -109,75 +109,81 @@ class HuberMaeFeatureLoss(nn.HuberLoss):
             return total_loss.sum()
         return total_loss
 
-# =============================================================================
-# SECTION 3: LOAD DATA FROM LOCAL CHUNKS & BUILD SERIES
-# =============================================================================
-# Loads chunk parquet files one at a time. For each group:
-#   - target series (NET_SALES) for train window
-#   - festive flag series
-#   - future covariate series (full range, needed for val + prediction)
-# Only the columns needed are read from parquet — not all 86.
-
 print("="*60)
 print("SECTION 3: LOADING DATA & BUILDING SERIES")
 print("="*60)
 
-needed_cols = (
-    [time_col, group_col, target_col]
-    + static_covariates
-    + future_covariates
-)
+needed_cols = [time_col, group_col, target_col] + static_covariates + penalty_cols
 
-train_targets_stacked = []   # 2-component: [NET_SALES, FESTIVE_FLAG] — train window
-val_targets_stacked   = []   # 2-component — warm-up + validation window
-train_future_covs     = []   # covariates covering train window
-full_future_covs      = []   # covariates covering everything (for val + predict)
-series_keys           = []   # group key per series, same order
+train_targets_stacked = []
+val_targets_stacked   = []
+series_keys           = []
 
 chunk_files = sorted(glob.glob(os.path.join(local_train_dir, "chunk_*.parquet")))
 test_chunk_files = sorted(glob.glob(os.path.join(local_test_dir, "chunk_*.parquet")))
 print(f"Train chunk files: {len(chunk_files)} | Test chunk files: {len(test_chunk_files)}")
 
+# ---------------------------------------------------------------------------
+# STEP 3A: Build ONE shared covariate series (covariates are date-only —
+# identical across all series, so one TimeSeries serves all 117K).
+# ---------------------------------------------------------------------------
+print("Building shared covariate calendar...")
+
+cov_cols = [time_col] + future_covariates
+
+# One chunk is enough to get all dates in the train range
+cal_train = pd.read_parquet(chunk_files[0], columns=cov_cols)
+cal_train[time_col] = pd.to_datetime(cal_train[time_col])
+cal_train = cal_train.drop_duplicates(subset=time_col)
+
+cal_test = pd.read_parquet(test_chunk_files[0], columns=cov_cols)
+cal_test[time_col] = pd.to_datetime(cal_test[time_col])
+cal_test = cal_test.drop_duplicates(subset=time_col)
+
+calendar_df = (
+    pd.concat([cal_train, cal_test])
+    .drop_duplicates(subset=time_col)
+    .sort_values(time_col)
+    .reset_index(drop=True)
+)
+del cal_train, cal_test
+gc.collect()
+
+print(f"Calendar range: {calendar_df[time_col].min()} → {calendar_df[time_col].max()} "
+      f"({len(calendar_df)} days)")
+
+shared_future_cov = TimeSeries.from_dataframe(
+    calendar_df, time_col=time_col, value_cols=future_covariates,
+    freq=FREQ, fill_missing_dates=False
+).astype(np.float32)
+
+# ---------------------------------------------------------------------------
+# STEP 3B: Build target series per group (only target + flag + statics — small)
+# ---------------------------------------------------------------------------
+val_window_days = (VAL_END - VAL_START).days + 1     # 181
+warmup_days = INPUT_CHUNK_LENGTH + OUTPUT_CHUNK_LENGTH - val_window_days
+warmup_start = VAL_START - pd.Timedelta(days=warmup_days)
+
 for ci, chunk_path in enumerate(chunk_files):
     df_chunk = pd.read_parquet(chunk_path, columns=needed_cols)
     df_chunk[time_col] = pd.to_datetime(df_chunk[time_col])
 
-    # Also load the matching test chunk (Jul 2026 onwards) for covariates
-    test_path = os.path.join(local_test_dir, os.path.basename(chunk_path))
-    if os.path.exists(test_path):
-        df_test = pd.read_parquet(
-            test_path, columns=[time_col, group_col] + future_covariates
-        )
-        df_test[time_col] = pd.to_datetime(df_test[time_col])
-    else:
-        df_test = None
-
     for key, g in df_chunk.groupby(group_col):
         g = g.sort_values(time_col).reset_index(drop=True)
 
-        # Festive flag: 1 if ANY penalty column non-zero that day
         g["FESTIVE_FLAG"] = (g[penalty_cols] != 0).any(axis=1).astype(np.float32)
 
-        # ---- split masks ----
         train_mask = g[time_col] <= TRAIN_END
-        # Validation strip must be >= INPUT + OUTPUT days total.
-        # Val window itself (Jan 1 - Jun 30 2026) is 181 days, so the warm-up
-        # glued in front must cover the remainder: i + o - 181 days.
-        val_window_days = (VAL_END - VAL_START).days + 1     # 181
-        warmup_days = INPUT_CHUNK_LENGTH + OUTPUT_CHUNK_LENGTH - val_window_days
-        warmup_start = VAL_START - pd.Timedelta(days=warmup_days)
-        val_mask = (g[time_col] >= warmup_start) & (g[time_col] <= VAL_END)
+        val_mask   = (g[time_col] >= warmup_start) & (g[time_col] <= VAL_END)
 
         g_train = g[train_mask]
         g_val   = g[val_mask]
 
         if len(g_train) < INPUT_CHUNK_LENGTH + OUTPUT_CHUNK_LENGTH:
-            continue  # series too short to produce even one training sample
+            continue
         if len(g_val) < INPUT_CHUNK_LENGTH + OUTPUT_CHUNK_LENGTH:
-            # val strip too short for i+o — skip val for this series
             g_val = None
 
-        # ---- target series: 2 components [NET_SALES, FESTIVE_FLAG] ----
         static_df = g[static_covariates].iloc[[0]].reset_index(drop=True)
 
         ts_train = TimeSeries.from_dataframe(
@@ -185,7 +191,7 @@ for ci, chunk_path in enumerate(chunk_files):
             value_cols=[target_col, "FESTIVE_FLAG"],
             static_covariates=static_df,
             freq=FREQ, fill_missing_dates=False
-        )
+        ).astype(np.float32)
         train_targets_stacked.append(ts_train)
 
         if g_val is not None:
@@ -194,36 +200,20 @@ for ci, chunk_path in enumerate(chunk_files):
                 value_cols=[target_col, "FESTIVE_FLAG"],
                 static_covariates=static_df,
                 freq=FREQ, fill_missing_dates=False
-            )
+            ).astype(np.float32)
         else:
             ts_val = None
         val_targets_stacked.append(ts_val)
 
-        # ---- future covariates ----
-        # Train covariates: train window is enough for fit()
-        fc_train = TimeSeries.from_dataframe(
-            g_train, time_col=time_col, value_cols=future_covariates,
-            freq=FREQ, fill_missing_dates=False
-        )
-        train_future_covs.append(fc_train)
-
-        # Full covariates: train + val (+ test if available) for val & predict
-        g_full = g[[time_col] + future_covariates]
-        if df_test is not None:
-            g_test = df_test[df_test[group_col] == key][[time_col] + future_covariates]
-            g_full = pd.concat([g_full, g_test]).sort_values(time_col)
-        fc_full = TimeSeries.from_dataframe(
-            g_full.reset_index(drop=True),
-            time_col=time_col, value_cols=future_covariates,
-            freq=FREQ, fill_missing_dates=False
-        )
-        full_future_covs.append(fc_full)
-
         series_keys.append(key)
 
-    del df_chunk, df_test
+    del df_chunk
     gc.collect()
     print(f"Chunk {ci+1}/{len(chunk_files)} processed. Series so far: {len(series_keys)}")
+
+# Covariate lists: same shared object referenced N times — negligible RAM
+train_future_covs = [shared_future_cov] * len(train_targets_stacked)
+full_future_covs  = [shared_future_cov] * len(train_targets_stacked)
 
 print(f"\nTotal series built : {len(train_targets_stacked)}")
 n_with_val = sum(v is not None for v in val_targets_stacked)
