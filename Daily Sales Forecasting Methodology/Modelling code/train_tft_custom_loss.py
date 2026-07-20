@@ -230,41 +230,23 @@ print("\n" + "="*60)
 print("SECTION 4: SCALING")
 print("="*60)
 
-def split_components(ts):
-    return ts.univariate_component(0), ts.univariate_component(1)
+train_sales = [ts.univariate_component(0) for ts in train_targets_stacked]
+train_flags = [ts.univariate_component(1) for ts in train_targets_stacked]
 
-train_sales   = [ts.univariate_component(0) for ts in train_targets_stacked]
-train_flags   = [ts.univariate_component(1) for ts in train_targets_stacked]
-
-target_scaler = Scaler()  # per-series min-max by default (fits each series independently)
+target_scaler = Scaler()  # per-series min-max (fits each series independently)
 train_sales_scaled = target_scaler.fit_transform(train_sales)
 
-# Re-stack: scaled sales + raw flag  (preserve static covariates from sales side)
+# Re-stack: scaled sales + raw flag (preserve static covariates from original)
 scaled_train_targets = []
 for s, f, orig in zip(train_sales_scaled, train_flags, train_targets_stacked):
     stacked = s.stack(f)
     stacked = stacked.with_static_covariates(orig.static_covariates)
     scaled_train_targets.append(stacked)
 
-# Validation targets — transform with the SAME fitted scalers
-scaled_val_targets = []
-val_indices = []  # which series have a val strip
-for i, ts_val in enumerate(val_targets_stacked):
-    if ts_val is None:
-        scaled_val_targets.append(None)
-        continue
-    v_sales = ts_val.univariate_component(0)
-    v_flag  = ts_val.univariate_component(1)
-    v_scaled = target_scaler.transform([v_sales], component_mask=None)  # list in, list out
-    # transform on a subset: Scaler.transform expects same number of series as fit.
-    scaled_val_targets.append(None)  # placeholder, fixed below
-    val_indices.append(i)
-
-# --- NOTE ---
-# Darts' Scaler is fitted per-series and transform() expects the same-length
-# list in the same order. Handle val transform by passing the full aligned list
-# where missing val series are substituted by their train counterpart, then
-# discarding those slots.
+# Validation targets — transform with the SAME fitted scalers.
+# Darts' per-series Scaler requires transform() to receive the same-length
+# list in the same order as fit(). Series without a val strip get their train
+# series as a placeholder; those slots are discarded afterwards.
 val_sales_aligned = [
     (val_targets_stacked[i].univariate_component(0)
      if val_targets_stacked[i] is not None
