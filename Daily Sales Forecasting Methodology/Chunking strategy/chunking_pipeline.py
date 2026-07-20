@@ -136,12 +136,15 @@ print("="*60)
 os.makedirs(local_train_dir, exist_ok=True)
 os.makedirs(local_test_dir, exist_ok=True)
 
-def to_file_uri(local_path):
-    """Convert a local path to a file:/// URI (Windows-safe)."""
-    abs_path = os.path.abspath(local_path).replace("\\", "/")
-    return f"file:///{abs_path}"
-
-def write_chunks(snowpark_df, dealer_chunks, dealer_col, local_dir, label="train"):
+def write_chunks(snowpark_df, dealer_chunks, dealer_col, group_col, local_dir, label="train"):
+    """
+    For each chunk of dealers:
+      1. Filter Snowpark DataFrame to those dealers (still lazy, no RAM used)
+      2. .to_pandas() — pulls ~9 GB into RAM
+      3. Sanitize group key
+      4. Write to local parquet
+      5. Delete from RAM immediately
+    """
     total = len(dealer_chunks)
     for idx, chunk in enumerate(dealer_chunks):
         out_path = os.path.join(local_dir, f"chunk_{idx:04d}.parquet")
@@ -150,19 +153,33 @@ def write_chunks(snowpark_df, dealer_chunks, dealer_col, local_dir, label="train
             print(f"[{label}] Chunk {idx+1}/{total} already exists, skipping.")
             continue
 
-        print(f"[{label}] Writing chunk {idx+1}/{total} ({len(chunk)} dealers)...")
+        print(f"[{label}] Pulling chunk {idx+1}/{total} ({len(chunk)} dealers) from Snowflake...")
 
-        snowpark_df \
-            .filter(F.col(dealer_col).isin(chunk)) \
-            .write.parquet(to_file_uri(out_path))
+        # Snowflake → RAM (~9 GB for 50 dealers)
+        chunk_df = (
+            snowpark_df
+            .filter(F.col(dealer_col).isin(chunk))
+            .to_pandas()
+        )
 
-        print(f"[{label}] Chunk {idx+1}/{total} written → {out_path}")
+        # Sanitize group key in the pulled data
+        chunk_df[group_col] = chunk_df[group_col].str.replace("<>", "_", regex=False)
+
+        # RAM → local disk
+        chunk_df.to_parquet(out_path, index=False)
+
+        print(f"[{label}] Chunk {idx+1}/{total} written → {out_path} "
+              f"({len(chunk_df):,} rows, {chunk_df[group_col].nunique()} groups)")
+
+        # Free RAM before next chunk
+        del chunk_df
+        gc.collect()
 
     written = len(glob.glob(os.path.join(local_dir, "chunk_*.parquet")))
     print(f"\n[{label}] Done. {written} chunk files in {local_dir}")
 
-write_chunks(train_set, dealer_chunks, dealer_col, local_train_dir, label="TRAIN")
-write_chunks(test_set,  dealer_chunks, dealer_col, local_test_dir,  label="TEST")
+write_chunks(train_set, dealer_chunks, dealer_col, group_col, local_train_dir, label="TRAIN")
+write_chunks(test_set,  dealer_chunks, dealer_col, group_col, local_test_dir,  label="TEST")
 
 session.close()
 print("\nSnowflake session closed.")
