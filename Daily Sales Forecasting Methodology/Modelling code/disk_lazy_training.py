@@ -187,36 +187,24 @@ print("\n" + "="*60)
 print("SECTION 3: STATIC COVARIATES")
 print("="*60)
 
+from sklearn.preprocessing import OrdinalEncoder
+
 static_df_all = pd.read_parquet(os.path.join(CACHE_DIR, "static_covariates.parquet"))
 
-# Fit the transformer on a few dummy series, then reuse its encoding on the
-# whole DataFrame at once (far cheaper than transforming 117K TimeSeries).
-_dummy_idx = pd.date_range("2023-01-01", periods=2, freq=FREQ)
-_probe = [
-    TimeSeries.from_times_and_values(
-        _dummy_idx, np.zeros((2, 1), np.float32),
-        static_covariates=static_df_all.iloc[[i]].reset_index(drop=True)
-    )
-    for i in range(min(len(static_df_all), 5000))   # sample is enough to see categories
+encoder = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
+encoded_arr = encoder.fit_transform(
+    static_df_all[static_covariates].astype(str)
+).astype(np.float32)
+
+encoded_df = pd.DataFrame(encoded_arr, columns=static_covariates)
+STATIC_ENCODED = [
+    encoded_df.iloc[[i]].reset_index(drop=True)
+    for i in range(len(encoded_df))
 ]
-static_transformer = StaticCovariatesTransformer()
-static_transformer.fit(_probe)
-del _probe
-gc.collect()
 
-# Encode every row up-front into a list of 1-row DataFrames
-_encoded = static_transformer.transform([
-    TimeSeries.from_times_and_values(
-        _dummy_idx, np.zeros((2, 1), np.float32),
-        static_covariates=static_df_all.iloc[[i]].reset_index(drop=True)
-    )
-    for i in range(len(static_df_all))
-])
-STATIC_ENCODED = [ts.static_covariates for ts in _encoded]
-del _encoded
-gc.collect()
 print(f"Encoded static covariates for {len(STATIC_ENCODED)} series.")
-
+for c in static_covariates:
+    print(f"  {c}: {static_df_all[c].nunique()} categories")
 # =============================================================================
 # SECTION 4: SHARED FUTURE COVARIATES (in RAM — never hits disk)
 # =============================================================================
