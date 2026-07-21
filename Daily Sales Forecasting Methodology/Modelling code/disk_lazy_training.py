@@ -245,23 +245,32 @@ class DiskLazyTargetSequence(collections.abc.Sequence):
     Target series backed by per-series .npz files.
 
     Returns a 2-component TimeSeries: [scaled NET_SALES, raw FESTIVE_FLAG].
-    Scaling is applied at read time using train-window min/max, so no Darts
-    Scaler and no 117K-series alignment problem.
+    Scaling is applied at read time using train-window min/max.
 
-    Pickles to just paths + small dicts -> safe with num_workers > 0.
+    With cache_in_ram=True, arrays are held after first read. The cache is
+    populated after worker fork, so it is never pickled — worker spawn stays
+    cheap while per-epoch disk I/O disappears after epoch 1.
     """
 
     def __init__(self, cache_dir, series_keys, scaler_stats, static_encoded,
-                 split="train", freq='D'):
+                 split="train", freq='D', cache_in_ram=True):
         self.cache_dir      = cache_dir
         self.series_keys    = series_keys
         self.scaler_stats   = scaler_stats
         self.static_encoded = static_encoded
-        self.split          = split          # "train" or "val"
+        self.split          = split
         self.freq           = freq
+        self.cache_in_ram   = cache_in_ram
+        self._ram           = {} if cache_in_ram else None
 
     def __len__(self):
         return len(self.series_keys)
+
+    # keep the RAM cache out of anything pickled to workers
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_ram"] = {} if self.cache_in_ram else None
+        return state
 
     def __getitem__(self, idx):
         if isinstance(idx, slice):
@@ -271,18 +280,22 @@ class DiskLazyTargetSequence(collections.abc.Sequence):
         if not 0 <= idx < len(self):
             raise IndexError(idx)
 
-        key  = self.series_keys[idx]
-        path = os.path.join(self.cache_dir, f"{safe_name(key)}.npz")
+        if self._ram is not None and idx in self._ram:
+            sales, flag, start = self._ram[idx]
+        else:
+            key  = self.series_keys[idx]
+            path = os.path.join(self.cache_dir, f"{safe_name(key)}.npz")
+            with np.load(path, allow_pickle=False) as z:
+                sales = z[f"{self.split}_sales"]
+                flag  = z[f"{self.split}_flag"]
+                start = str(z[f"{self.split}_start"])
+            if self._ram is not None:
+                self._ram[idx] = (sales, flag, start)
 
-        with np.load(path, allow_pickle=False) as z:
-            sales = z[f"{self.split}_sales"]
-            flag  = z[f"{self.split}_flag"]
-            start = str(z[f"{self.split}_start"])
-
-        lo, hi = self.scaler_stats[key]
+        lo, hi = self.scaler_stats[self.series_keys[idx]]
         scaled = ((sales - lo) / (hi - lo)).astype(np.float32)
 
-        values = np.stack([scaled, flag], axis=1)          # (T, 2)
+        values = np.stack([scaled, flag], axis=1)
         times  = pd.date_range(start=start, periods=len(values), freq=self.freq)
 
         return TimeSeries.from_times_and_values(
@@ -290,8 +303,7 @@ class DiskLazyTargetSequence(collections.abc.Sequence):
             columns=[target_col, "FESTIVE_FLAG"],
             static_covariates=self.static_encoded[idx],
         )
-
-
+    
 class SharedCovSequence(collections.abc.Sequence):
     """Returns the same in-RAM covariate TimeSeries for every index."""
 
