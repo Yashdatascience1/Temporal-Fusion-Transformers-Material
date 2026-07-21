@@ -39,3 +39,5 @@ try:
 finally:
     _stop.set()
     print("RAM logger stopped.")
+
+RAM logger started.[11:30:40] main: 9.2 GB | workers: 0.0 GB | total: 9.2 GB (peak 9.2) | system: 30.0/67.9 GB
