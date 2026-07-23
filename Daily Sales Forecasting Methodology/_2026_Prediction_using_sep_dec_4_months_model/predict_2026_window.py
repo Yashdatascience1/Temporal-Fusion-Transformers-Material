@@ -83,6 +83,22 @@ print(f"  scaled series len      : {len(scaled_full_series[0])}  "
 print(f"  scaled covariates len  : {len(scaled_full_covariates[0])}  "
       f"(index {scaled_full_covariates[0].start_time()}..{scaled_full_covariates[0].end_time()})")
 
+
+s = scaled_full_series[0]
+c = scaled_full_covariates[0]
+
+print("series values   :", s.dtype)
+print("series statics  :", s.static_covariates.dtypes.unique() if s.static_covariates is not None else None)
+print("covariate values:", c.dtype)
+print("model params    :", next(best_model.model.parameters()).dtype)
+print("precision       :", best_model.trainer_params.get("precision"))
+
+# any series in the lists still float64?
+bad_s = [i for i, x in enumerate(scaled_full_series) if x.dtype != np.float32]
+bad_c = [i for i, x in enumerate(scaled_full_covariates) if x.dtype != np.float32]
+print("float64 series   :", len(bad_s))
+print("float64 covariates:", len(bad_c))
+
 # =============================================================================
 # SECTION 3: PREDICT
 # =============================================================================
