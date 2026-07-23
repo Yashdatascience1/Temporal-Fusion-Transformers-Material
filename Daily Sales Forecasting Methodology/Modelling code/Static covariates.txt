@@ -8,3 +8,9 @@
  'DEALER_CITY',
  'X_CITY_CATEGORY',
  'ZONAL_OFFICE_NAME'
+
+1. Results in excel - Done
+2. Predict for 2026 using previous model 
+3. XGBoost prediction
+4. Simple Linear Regression Group by PARENT_DEALER_CODE_MODEL_FAMILY
+5. 
