@@ -15,6 +15,18 @@
 #   Single shot, no autoregression.
 # =============================================================================
 
+scaled_full_covariates = future_covariate_scaler.transform(full_future_covariates)
+print("scaled_full_covariates success!")
+print(f"  length: {len(scaled_full_covariates[0])}  "
+      f"(index {scaled_full_covariates[0].start_time()}"
+      f"..{scaled_full_covariates[0].end_time()})")
+
+# ---- NEW: also scale the full target series, for predicting from 2025 ----
+scaled_full_series = target_scaler.transform(target_series)
+scaled_full_series = static_transformer.transform(scaled_full_series)
+print(f"scaled_full_series success! length: {len(scaled_full_series[0])}")
+
+
 import os
 import numpy as np
 import pandas as pd
