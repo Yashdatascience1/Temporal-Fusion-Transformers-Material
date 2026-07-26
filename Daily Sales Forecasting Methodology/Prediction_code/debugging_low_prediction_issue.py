@@ -14,3 +14,4 @@ print(f"median zero-day fraction : {np.median(zero_frac):.1%}")
 print(f"90th pct zero fraction   : {np.percentile(zero_frac, 90):.1%}")
 print(f"median daily mean        : {np.median(means):.2f}")
 print(f"median peak/mean         : {np.median(peak_ratio):.1f}")
+
