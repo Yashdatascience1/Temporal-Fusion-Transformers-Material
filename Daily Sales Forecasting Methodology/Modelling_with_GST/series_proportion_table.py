@@ -70,9 +70,9 @@ df = agg.to_pandas()
 session.close()
 print("done. rows:", len(df))
 
-df.columns = [c.strip('"').upper() for c in df.columns]
-df = df.rename(columns={group_col.upper(): group_col})
-df['FIRST_SALE_DATE'] = pd.to_datetime(df['FIRST_SALE_DATE'])
+data1.columns = [c.strip('"').upper() for c in data1.columns]
+data1 = data1.rename(columns={group_col.upper(): group_col})
+data1['FIRST_SALE_DATE'] = pd.to_datetime(data1['FIRST_SALE_DATE'])
 
 # ── metrics ───────────────────────────────────────────────────────────────────
 train_end = pd.Timestamp(TRAIN_END)
