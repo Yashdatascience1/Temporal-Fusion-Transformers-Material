@@ -65,3 +65,13 @@ with open(p, encoding="utf8") as f:
 for i, line in enumerate(lines):
     if "shuffle" in line:
         print(f"{i+1}: {line.rstrip()}")
+
+
+900:             By default, Darts configures parameters ("batch_size", "shuffle", "drop_last", "collate_fn", "pin_memory")
+1137:             By default, Darts configures parameters ("batch_size", "shuffle", "drop_last", "collate_fn", "pin_memory")
+1281:                 "shuffle": True,
+1295:         dataloader_kwargs["shuffle"] = False
+1487:             By default, Darts configures parameters ("batch_size", "shuffle", "drop_last", "collate_fn", "pin_memory")
+1617:             By default, Darts configures parameters ("batch_size", "shuffle", "drop_last", "collate_fn", "pin_memory")
+1772:             By default, Darts configures parameters ("batch_size", "shuffle", "drop_last", "collate_fn", "pin_memory")
+1845:             **{"shuffle": False},
