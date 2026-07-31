@@ -55,3 +55,13 @@ print(f"pre-warmed {len(train_seq)+len(val_seq)} series in {time.time()-t0:.0f}s
 import psutil, os
 print(f"RSS now: {psutil.Process(os.getpid()).memory_info().rss/1e9:.1f} GB")
 
+import os, re
+# your venv path from the earlier traceback
+p = r"c:\Users\G0004878\Desktop\Virtual_environments\darts_gpu\lib\site-packages\darts\models\forecasting\torch_forecasting_model.py"
+
+with open(p, encoding="utf8") as f:
+    lines = f.readlines()
+
+for i, line in enumerate(lines):
+    if "shuffle" in line:
+        print(f"{i+1}: {line.rstrip()}")
