@@ -1,62 +1,57 @@
-model = TFTModel(
-    input_chunk_length=INPUT_CHUNK_LENGTH,
-    output_chunk_length=OUTPUT_CHUNK_LENGTH,
+def __getitem__(self, idx):
+        if isinstance(idx, slice):
+            return [self[i] for i in range(*idx.indices(len(self)))]
+        if idx < 0:
+            idx += len(self)
+        if not 0 <= idx < len(self):
+            raise IndexError(idx)
 
-    hidden_size=32,
-    lstm_layers=4,
-    num_attention_heads=4,          # was 16 -> 4x less attention memory, and
-                                    # 32/4 = 8 dims per head instead of 2
-    dropout=0.05,
+        # cache the FINISHED TimeSeries — after first touch this is a dict lookup
+        if self._ram is not None and idx in self._ram:
+            return self._ram[idx]
 
-    batch_size=64,                  # was 256 -> 4x less memory per step
-    n_epochs=100,
+        key  = self.series_keys[idx]
+        path = os.path.join(self.cache_dir, f"{safe_name(key)}.npz")
+        with np.load(path, allow_pickle=False) as z:
+            sales = z[f"{self.split}_sales"]
+            flag  = z[f"{self.split}_flag"]
+            start = str(z[f"{self.split}_start"])
 
-    likelihood=None,
-    loss_fn=HuberMaeFeatureLoss(delta=1.0, reduction='mean'),
+        lo, hi = self.scaler_stats[key]
+        scaled = ((sales - lo) / (hi - lo)).astype(np.float32)
+        values = np.stack([scaled, flag], axis=1)
+        times  = pd.date_range(start=start, periods=len(values), freq=self.freq)
 
-    random_state=42,
-    add_relative_index=True,
+        ts = TimeSeries.from_times_and_values(
+            times, values,
+            columns=[target_col, "FESTIVE_FLAG"],
+            static_covariates=self.static_encoded[idx],
+        )
+        if self._ram is not None:
+            self._ram[idx] = ts
+        return ts
 
-    save_checkpoints=True,
-    force_reset=True,
-    model_name=MODEL_NAME,
-    skip_interpolation=True,
-
-    pl_trainer_kwargs={
+pl_trainer_kwargs={
         "accelerator": "gpu" if torch.cuda.is_available() else "cpu",
         "devices": 1,
         "callbacks": [early_stopping],
         "gradient_clip_val": 0.1,
         "precision": "bf16-mixed",
-        "accumulate_grad_batches": 4,   # 64 x 4 = effective batch 256
+        "accumulate_grad_batches": 4,
+        "limit_train_batches": 5000,
+        "limit_val_batches": 500,
     },
-)
 
-import gc, torch
+import time, sys
+t0 = time.time()
+for i in range(len(train_seq)):
+    _ = train_seq[i]
+    if i % 5000 == 0:
+        print(f"  train {i}/{len(train_seq)}  {time.time()-t0:.0f}s", flush=True)
+for i in range(len(val_seq)):
+    _ = val_seq[i]
+print(f"pre-warmed {len(train_seq)+len(val_seq)} series in {time.time()-t0:.0f}s")
 
-# free anything left on the card by a previous failed fit
-for name in ("trainer", "model"):
-    pass  # keep `model` — only clear stale CUDA allocations
-gc.collect()
-torch.cuda.empty_cache()
-torch.cuda.reset_peak_memory_stats()
-
-free, total = torch.cuda.mem_get_info()
-print(f"GPU free: {free/1e9:.2f} GB / {total/1e9:.2f} GB")
-if free / total < 0.8:
-    print("WARNING: less than 80% of the card is free -- restart the kernel before training.")
-
-
-model.fit(
-    series=train_seq,
-    future_covariates=train_cov_seq,
-    val_series=val_seq,
-    val_future_covariates=val_cov_seq,
-    max_samples_per_ts=400,          # REINSTATED
-    dataloader_kwargs={
-        "num_workers": 0,
-        "pin_memory": True,
-    },
-    verbose=True,
-)
+import psutil, os
+print(f"RSS now: {psutil.Process(os.getpid()).memory_info().rss/1e9:.1f} GB")
 
