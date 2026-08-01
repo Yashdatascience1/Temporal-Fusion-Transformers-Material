@@ -126,6 +126,9 @@ for h in hits:
     sd = torch.load(h, map_location="cpu")
     print(os.path.basename(h), "| epoch:", sd.get("epoch"), "| global_step:", sd.get("global_step"))
 
+best-epoch=6-val_loss=0.00.ckpt | epoch: 6 | global_step: 8750
+last-epoch=11.ckpt | epoch: 11 | global_step: 15000
+
 print("WORK_DIR:", WORK_DIR, "| exists:", os.path.exists(WORK_DIR))
 print("MODEL_NAME:", MODEL_NAME)
 
