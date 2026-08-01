@@ -109,4 +109,6 @@ assert best_model.output_chunk_length == OUTPUT_CHUNK_LENGTH, \
 
 
 
-
+import glob
+print(glob.glob(os.path.join(WORK_DIR, "**", "*.ckpt"), recursive=True))
+print(WORK_DIR, MODEL_NAME)
