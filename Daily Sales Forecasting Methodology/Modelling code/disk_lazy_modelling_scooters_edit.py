@@ -75,3 +75,35 @@ for i, line in enumerate(lines):
 1617:             By default, Darts configures parameters ("batch_size", "shuffle", "drop_last", "collate_fn", "pin_memory")
 1772:             By default, Darts configures parameters ("batch_size", "shuffle", "drop_last", "collate_fn", "pin_memory")
 1845:             **{"shuffle": False},
+
+
+required_end = FORECAST_START + pd.Timedelta(days=OUTPUT_CHUNK_LENGTH - 1)
+
+if SHARED_COV.end_time() < required_end:
+    n_extra = (required_end - SHARED_COV.end_time()).days
+    cov_df = SHARED_COV.to_dataframe()
+
+    extra_idx = pd.date_range(
+        SHARED_COV.end_time() + pd.Timedelta(days=1), periods=n_extra, freq=FREQ
+    )
+    extra = pd.DataFrame(0.0, index=extra_idx, columns=cov_df.columns)
+
+    # rebuild any date-derived columns for the new rows here.
+    # Anything left at 0.0 is asserting "no festival, no special day" for those dates.
+
+    SHARED_COV = TimeSeries.from_dataframe(pd.concat([cov_df, extra]), freq=FREQ)
+    print(f"Extended covariates by {n_extra} days -> {SHARED_COV.end_time().date()}")
+
+required_end = FORECAST_START + pd.Timedelta(days=OUTPUT_CHUNK_LENGTH - 1)
+assert SHARED_COV.end_time() >= required_end, (
+    f"Covariates end {SHARED_COV.end_time().date()}, need {required_end.date()}"
+)
+print(f"Covariate coverage OK (through {required_end.date()}).")
+
+assert best_model.output_chunk_length == OUTPUT_CHUNK_LENGTH, \
+    f"Model OCL is {best_model.output_chunk_length}, notebook says {OUTPUT_CHUNK_LENGTH}"
+
+
+
+
+
