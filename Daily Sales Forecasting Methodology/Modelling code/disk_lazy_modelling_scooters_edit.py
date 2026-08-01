@@ -88,11 +88,14 @@ if SHARED_COV.end_time() < required_end:
     )
     extra = pd.DataFrame(0.0, index=extra_idx, columns=cov_df.columns)
 
-    # rebuild any date-derived columns for the new rows here.
-    # Anything left at 0.0 is asserting "no festival, no special day" for those dates.
-
-    SHARED_COV = TimeSeries.from_dataframe(pd.concat([cov_df, extra]), freq=FREQ)
+    combined = pd.concat([cov_df, extra]).astype(np.float32)   # <-- the fix
+    SHARED_COV = TimeSeries.from_dataframe(combined, freq=FREQ)
     print(f"Extended covariates by {n_extra} days -> {SHARED_COV.end_time().date()}")
+    print(f"dtype: {SHARED_COV.dtype}")
+
+assert SHARED_COV.end_time() >= required_end, (
+    f"Covariates end {SHARED_COV.end_time().date()}, need {required_end.date()}"
+)
 
 required_end = FORECAST_START + pd.Timedelta(days=OUTPUT_CHUNK_LENGTH - 1)
 assert SHARED_COV.end_time() >= required_end, (
