@@ -112,3 +112,20 @@ assert best_model.output_chunk_length == OUTPUT_CHUNK_LENGTH, \
 import glob
 print(glob.glob(os.path.join(WORK_DIR, "**", "*.ckpt"), recursive=True))
 print(WORK_DIR, MODEL_NAME)
+
+import glob, os, torch
+
+# 1. locate the checkpoints
+hits = glob.glob(os.path.join(WORK_DIR, "**", "*.ckpt"), recursive=True)
+for h in hits:
+    print(h)
+
+
+# 2. read the epoch out of each
+for h in hits:
+    sd = torch.load(h, map_location="cpu")
+    print(os.path.basename(h), "| epoch:", sd.get("epoch"), "| global_step:", sd.get("global_step"))
+
+print("WORK_DIR:", WORK_DIR, "| exists:", os.path.exists(WORK_DIR))
+print("MODEL_NAME:", MODEL_NAME)
+
