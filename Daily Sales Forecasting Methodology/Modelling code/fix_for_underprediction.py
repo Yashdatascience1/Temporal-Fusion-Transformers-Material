@@ -159,3 +159,6 @@ patience has been reduced to 5
 
 also, help me what is the purpose of this - 
 
+
+flag uniques: tensor([0., 1.], device='cuda:0')
+y range: min 0.00 max 281.50 mean 0.59
