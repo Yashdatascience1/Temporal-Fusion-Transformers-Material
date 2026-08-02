@@ -15,3 +15,11 @@ print(f"ACTUAL sales, last 365d : {tot_365:,.0f}  ({tot_365/1e5:.2f} lacs)")
 print()
 print(f"model predicted         : 0.10 lacs")
 print(f"you expected            : 1.90 lacs")
+
+
+series counted          : 32,568
+ACTUAL sales, last 154d : 173,041  (1.73 lacs)
+ACTUAL sales, last 365d : 411,025  (4.11 lacs)
+
+model predicted         : 0.10 lacs
+you expected            : 1.90 lacs
