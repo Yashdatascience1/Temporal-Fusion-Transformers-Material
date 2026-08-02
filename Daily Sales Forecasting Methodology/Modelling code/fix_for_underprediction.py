@@ -162,3 +162,14 @@ also, help me what is the purpose of this -
 
 flag uniques: tensor([0., 1.], device='cuda:0')
 y range: min 0.00 max 281.50 mean 0.59
+
+
+import numpy as np, os
+dead_all, dead_recent = [], []
+for k in series_keys:
+    with np.load(os.path.join(CACHE_DIR, f"{safe_name(k)}.npz")) as z:
+        s = z["train_sales"]
+    if s.sum() == 0:        dead_all.append(k)
+    elif s[-180:].sum() == 0: dead_recent.append(k)
+print(f"never sold in training : {len(dead_all):,} ({len(dead_all)/len(series_keys)*100:.1f}%)")
+print(f"nothing in last 180d   : {len(dead_recent):,} ({len(dead_recent)/len(series_keys)*100:.1f}%)")
