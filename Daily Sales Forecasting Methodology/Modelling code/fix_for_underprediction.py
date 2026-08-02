@@ -1,41 +1,17 @@
-import numpy as np, os, json
+import numpy as np, os
 
-new_stats = {}
-for key in manifest["series_keys"]:
-    with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
-        s = z["train_sales"]
-    m = float(s.mean())
-    new_stats[key] = [0.0, max(m, 0.05)]      # was: m if m > 1e-3 else 1.0
-
-manifest["scaler_stats"] = new_stats
-with open(os.path.join(CACHE_DIR, "manifest.json"), "w") as f:
-    json.dump(manifest, f)
-scaler_stats = new_stats
-print("scaler_stats recomputed (guard 0.05)")
-
-
-# ---- drop series that never sold during training ----
-DROP_NEVER_SOLD  = True
-DORMANT_DAYS     = None      # set to 180/270/365 once the backtest tells you which
-
-keep = []
+H = 154
+tot_last_H = 0.0
+tot_365    = 0.0
 for k in series_keys:
     with np.load(os.path.join(CACHE_DIR, f"{safe_name(k)}.npz")) as z:
-        s = z["train_sales"]
-    if DROP_NEVER_SOLD and s.sum() == 0:
-        keep.append(False); continue
-    if DORMANT_DAYS and s[-DORMANT_DAYS:].sum() == 0:
-        keep.append(False); continue
-    keep.append(True)
+        s = z["val_sales"]          # ends 2026-07-30, day before FORECAST_START
+    tot_last_H += s[-H:].sum()
+    tot_365    += s[-365:].sum()
 
-n_before = len(series_keys)
-series_keys    = [k for k, m in zip(series_keys, keep) if m]
-has_val        = [h for h, m in zip(has_val, keep) if m]
-STATIC_ENCODED = [s for s, m in zip(STATIC_ENCODED, keep) if m]
-
-assert len(series_keys) == len(has_val) == len(STATIC_ENCODED)
-print(f"series: {n_before:,} -> {len(series_keys):,}  (dropped {n_before-len(series_keys):,})")
-
-
-loss_fn=HuberMaeFeatureLoss(delta=100.0, festive_weight=3.0, under_weight=3.0),
-
+print(f"series counted          : {len(series_keys):,}")
+print(f"ACTUAL sales, last {H}d : {tot_last_H:,.0f}  ({tot_last_H/1e5:.2f} lacs)")
+print(f"ACTUAL sales, last 365d : {tot_365:,.0f}  ({tot_365/1e5:.2f} lacs)")
+print()
+print(f"model predicted         : 0.10 lacs")
+print(f"you expected            : 1.90 lacs")
