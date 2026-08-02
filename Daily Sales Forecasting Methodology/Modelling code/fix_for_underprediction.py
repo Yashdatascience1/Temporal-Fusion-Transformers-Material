@@ -173,3 +173,12 @@ for k in series_keys:
     elif s[-180:].sum() == 0: dead_recent.append(k)
 print(f"never sold in training : {len(dead_all):,} ({len(dead_all)/len(series_keys)*100:.1f}%)")
 print(f"nothing in last 180d   : {len(dead_recent):,} ({len(dead_recent)/len(series_keys)*100:.1f}%)")
+
+tot, dropped_recent = 0.0, 0.0
+for k in series_keys:
+    with np.load(os.path.join(CACHE_DIR, f"{safe_name(k)}.npz")) as z:
+        s = z["train_sales"]
+    tot += s[-365:].sum()
+    if s.sum() == 0 or s[-180:].sum() == 0:
+        dropped_recent += s[-365:].sum()
+print(f"share of last-365d volume in series you'd drop: {dropped_recent/tot*100:.2f}%")
