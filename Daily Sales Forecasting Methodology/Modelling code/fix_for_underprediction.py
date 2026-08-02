@@ -28,3 +28,15 @@ you expected            : 1.90 lacs
 print("MODEL_NAME  :", MODEL_NAME)
 print("loss delta  :", best_model.model.criterion.delta)
 print("festive_wt  :", best_model.model.criterion.festive_weight)
+
+import numpy as np
+seq  = DiskLazyTargetSequence(CACHE_DIR, series_keys[:500], scaler_stats,
+                              STATIC_ENCODED[:500], split="val", freq=FREQ,
+                              cache_in_ram=False)
+covs = SharedCovSequence(SHARED_COV, 500)
+p    = best_model.predict(n=HORIZON, series=seq, future_covariates=covs,
+                          verbose=False, num_loader_workers=0)
+
+raw = np.concatenate([x.values()[:, 0] for x in p])
+print(f"SCALED preds: mean {raw.mean():.4f} median {np.median(raw):.4f} max {raw.max():.2f}")
+print("training targets had mean 0.59")
