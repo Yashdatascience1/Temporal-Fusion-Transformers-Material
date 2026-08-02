@@ -40,3 +40,9 @@ p    = best_model.predict(n=HORIZON, series=seq, future_covariates=covs,
 raw = np.concatenate([x.values()[:, 0] for x in p])
 print(f"SCALED preds: mean {raw.mean():.4f} median {np.median(raw):.4f} max {raw.max():.2f}")
 print("training targets had mean 0.59")
+
+
+import shutil
+shutil.rmtree(os.path.join(DATA_ROOT, "scooter_predictions_2026"), ignore_errors=True)
+os.makedirs(os.path.join(DATA_ROOT, "scooter_predictions_2026"), exist_ok=True)
+print("stale prediction chunks cleared")
