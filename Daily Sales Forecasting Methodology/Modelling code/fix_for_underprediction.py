@@ -23,3 +23,8 @@ ACTUAL sales, last 365d : 411,025  (4.11 lacs)
 
 model predicted         : 0.10 lacs
 you expected            : 1.90 lacs
+
+
+print("MODEL_NAME  :", MODEL_NAME)
+print("loss delta  :", best_model.model.criterion.delta)
+print("festive_wt  :", best_model.model.criterion.festive_weight)
