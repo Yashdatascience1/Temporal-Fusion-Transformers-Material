@@ -98,3 +98,7 @@ for key in predict_keys[:5000]:
     with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
         full_mean += z["train_sales"].mean()
 print(f"full-training daily mean : {full_mean:,.0f}   (predicted was 126)")
+
+m = best_model.model
+print("RIN attr:", [a for a in dir(m) if "norm" in a.lower() or "rin" in a.lower()])
+print("hparams :", {k: v for k, v in best_model.model_params.items() if "norm" in k.lower()})
