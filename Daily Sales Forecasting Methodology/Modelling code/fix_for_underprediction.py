@@ -50,31 +50,31 @@ print("stale prediction chunks cleared")
 # actual for the same calendar window last year
 import numpy as np, pandas as pd, os, torch
 
-N_BT   = 91                        # May 1 -> Jul 30 2026
-SAMPLE = predict_keys[:5000]
-statics = predict_statics[:5000]
+a_start = pd.Timestamp("2026-05-01")
 
-seq  = DiskLazyTargetSequence(CACHE_DIR, SAMPLE, scaler_stats, statics,
-                              split="train", freq=FREQ, cache_in_ram=False)
-covs = SharedCovSequence(SHARED_COV, len(SAMPLE))
+for N_BT in (30, 60, 91):
+    a_end = a_start + pd.Timedelta(days=N_BT - 1)      # <-- now tracks N_BT
 
-with torch.no_grad():
-    preds = best_model.predict(n=N_BT, series=seq, future_covariates=covs, verbose=False)
+    SAMPLE  = predict_keys[:5000]
+    statics = predict_statics[:5000]
+    seq  = DiskLazyTargetSequence(CACHE_DIR, SAMPLE, scaler_stats, statics,
+                                  split="train", freq=FREQ, cache_in_ram=False)
+    covs = SharedCovSequence(SHARED_COV, len(SAMPLE))
 
-pred_tot = 0.0
-for key, p in zip(SAMPLE, preds):
-    lo, hi = scaler_stats[key]
-    pred_tot += np.clip(p.values()[:, 0] * (hi - lo) + lo, 0, None).sum()
+    with torch.no_grad():
+        preds = best_model.predict(n=N_BT, series=seq, future_covariates=covs, verbose=False)
 
-a_start, a_end = pd.Timestamp("2026-05-01"), pd.Timestamp("2026-07-30")
-act_tot = 0.0
-for key in SAMPLE:
-    with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
-        s  = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
-    idx = pd.date_range(st, periods=len(s), freq="D")
-    act_tot += s[(idx >= a_start) & (idx <= a_end)].sum()
+    pred_tot = 0.0
+    for key, p in zip(SAMPLE, preds):
+        lo, hi = scaler_stats[key]
+        pred_tot += np.clip(p.values()[:, 0] * (hi - lo) + lo, 0, None).sum()
 
-print(f"series in test         : {len(SAMPLE):,}")
-print(f"PREDICTED May-Jul 2026 : {pred_tot:,.0f}")
-print(f"ACTUAL    May-Jul 2026 : {act_tot:,.0f}")
-print(f"ratio pred/actual      : {pred_tot/act_tot:.3f}   ({(pred_tot/act_tot-1)*100:+.1f}%)")
+    act_tot = 0.0
+    for key in SAMPLE:
+        with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
+            s  = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
+        idx = pd.date_range(st, periods=len(s), freq="D")
+        act_tot += s[(idx >= a_start) & (idx <= a_end)].sum()
+
+    print(f"N_BT={N_BT:3d} ({a_start.date()} .. {a_end.date()}): "
+          f"pred {pred_tot:>9,.0f} | actual {act_tot:>9,.0f} | ratio {pred_tot/act_tot:.3f}")
