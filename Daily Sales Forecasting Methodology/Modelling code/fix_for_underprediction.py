@@ -48,12 +48,33 @@ os.makedirs(os.path.join(DATA_ROOT, "scooter_predictions_2026"), exist_ok=True)
 print("stale prediction chunks cleared")
 
 # actual for the same calendar window last year
-import numpy as np, os, pandas as pd
-start = pd.Timestamp("2025-09-01"); end = pd.Timestamp("2025-12-09")
-tot = 0.0
-for k in predict_keys:
-    with np.load(os.path.join(CACHE_DIR, f"{safe_name(k)}.npz")) as z:
-        s = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
+import numpy as np, pandas as pd, os, torch
+
+N_BT   = 91                        # May 1 -> Jul 30 2026
+SAMPLE = predict_keys[:5000]
+statics = predict_statics[:5000]
+
+seq  = DiskLazyTargetSequence(CACHE_DIR, SAMPLE, scaler_stats, statics,
+                              split="train", freq=FREQ, cache_in_ram=False)
+covs = SharedCovSequence(SHARED_COV, len(SAMPLE))
+
+with torch.no_grad():
+    preds = best_model.predict(n=N_BT, series=seq, future_covariates=covs, verbose=False)
+
+pred_tot = 0.0
+for key, p in zip(SAMPLE, preds):
+    lo, hi = scaler_stats[key]
+    pred_tot += np.clip(p.values()[:, 0] * (hi - lo) + lo, 0, None).sum()
+
+a_start, a_end = pd.Timestamp("2026-05-01"), pd.Timestamp("2026-07-30")
+act_tot = 0.0
+for key in SAMPLE:
+    with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
+        s  = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
     idx = pd.date_range(st, periods=len(s), freq="D")
-    tot += s[(idx >= start) & (idx <= end)].sum()
-print(f"actual Sep 1 - Dec 9 2025: {tot:,.0f} ({tot/1e5:.2f} lacs)")
+    act_tot += s[(idx >= a_start) & (idx <= a_end)].sum()
+
+print(f"series in test         : {len(SAMPLE):,}")
+print(f"PREDICTED May-Jul 2026 : {pred_tot:,.0f}")
+print(f"ACTUAL    May-Jul 2026 : {act_tot:,.0f}")
+print(f"ratio pred/actual      : {pred_tot/act_tot:.3f}   ({(pred_tot/act_tot-1)*100:+.1f}%)")
