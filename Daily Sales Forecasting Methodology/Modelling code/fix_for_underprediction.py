@@ -91,3 +91,10 @@ actual monthly totals:
   2026-05:     31,262  MoM   -2.8%   YoY  +48.7%
   2026-06:     33,363  MoM   +6.7%   YoY  +44.7%
   2026-07:     34,527  MoM   +3.5%   YoY  +25.3%
+
+
+full_mean = 0.0
+for key in predict_keys[:5000]:
+    with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
+        full_mean += z["train_sales"].mean()
+print(f"full-training daily mean : {full_mean:,.0f}   (predicted was 126)")
