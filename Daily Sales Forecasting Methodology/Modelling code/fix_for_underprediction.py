@@ -1,80 +1,55 @@
-import numpy as np, os
-
-H = 154
-tot_last_H = 0.0
-tot_365    = 0.0
-for k in series_keys:
-    with np.load(os.path.join(CACHE_DIR, f"{safe_name(k)}.npz")) as z:
-        s = z["val_sales"]          # ends 2026-07-30, day before FORECAST_START
-    tot_last_H += s[-H:].sum()
-    tot_365    += s[-365:].sum()
-
-print(f"series counted          : {len(series_keys):,}")
-print(f"ACTUAL sales, last {H}d : {tot_last_H:,.0f}  ({tot_last_H/1e5:.2f} lacs)")
-print(f"ACTUAL sales, last 365d : {tot_365:,.0f}  ({tot_365/1e5:.2f} lacs)")
-print()
-print(f"model predicted         : 0.10 lacs")
-print(f"you expected            : 1.90 lacs")
-
-
-series counted          : 32,568
-ACTUAL sales, last 154d : 173,041  (1.73 lacs)
-ACTUAL sales, last 365d : 411,025  (4.11 lacs)
-
-model predicted         : 0.10 lacs
-you expected            : 1.90 lacs
-
-
-print("MODEL_NAME  :", MODEL_NAME)
-print("loss delta  :", best_model.model.criterion.delta)
-print("festive_wt  :", best_model.model.criterion.festive_weight)
-
-import numpy as np
-seq  = DiskLazyTargetSequence(CACHE_DIR, series_keys[:500], scaler_stats,
-                              STATIC_ENCODED[:500], split="val", freq=FREQ,
-                              cache_in_ram=False)
-covs = SharedCovSequence(SHARED_COV, 500)
-p    = best_model.predict(n=HORIZON, series=seq, future_covariates=covs,
-                          verbose=False, num_loader_workers=0)
-
-raw = np.concatenate([x.values()[:, 0] for x in p])
-print(f"SCALED preds: mean {raw.mean():.4f} median {np.median(raw):.4f} max {raw.max():.2f}")
-print("training targets had mean 0.59")
-
-
-import shutil
-shutil.rmtree(os.path.join(DATA_ROOT, "scooter_predictions_2026"), ignore_errors=True)
-os.makedirs(os.path.join(DATA_ROOT, "scooter_predictions_2026"), exist_ok=True)
-print("stale prediction chunks cleared")
-
-# actual for the same calendar window last year
 import numpy as np, pandas as pd, os, torch
 
-a_start = pd.Timestamp("2026-05-01")
+SAMPLE, statics = predict_keys[:5000], predict_statics[:5000]
+N_BT = 91
+a_start, a_end = pd.Timestamp("2026-05-01"), pd.Timestamp("2026-07-30")
 
-for N_BT in (30, 60, 91):
-    a_end = a_start + pd.Timedelta(days=N_BT - 1)      # <-- now tracks N_BT
+seq  = DiskLazyTargetSequence(CACHE_DIR, SAMPLE, scaler_stats, statics,
+                              split="train", freq=FREQ, cache_in_ram=False)
+covs = SharedCovSequence(SHARED_COV, len(SAMPLE))
+with torch.no_grad():
+    preds = best_model.predict(n=N_BT, series=seq, future_covariates=covs, verbose=False)
 
-    SAMPLE  = predict_keys[:5000]
-    statics = predict_statics[:5000]
-    seq  = DiskLazyTargetSequence(CACHE_DIR, SAMPLE, scaler_stats, statics,
-                                  split="train", freq=FREQ, cache_in_ram=False)
-    covs = SharedCovSequence(SHARED_COV, len(SAMPLE))
+ctx365 = ctx90 = pred_d = act_d = 0.0
+for key, p in zip(SAMPLE, preds):
+    with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
+        tr = z["train_sales"]; va = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
+    ctx365 += tr[-365:].sum() / 365
+    ctx90  += tr[-90:].sum()  / 90
+    lo, hi = scaler_stats[key]
+    pred_d += np.clip(p.values()[:, 0] * (hi - lo) + lo, 0, None).sum() / N_BT
+    idx = pd.date_range(st, periods=len(va), freq="D")
+    act_d += va[(idx >= a_start) & (idx <= a_end)].sum() / N_BT
 
-    with torch.no_grad():
-        preds = best_model.predict(n=N_BT, series=seq, future_covariates=covs, verbose=False)
+print("daily totals across the sample")
+print(f"  trailing 365d mean (RIN anchor) : {ctx365:9,.0f}")
+print(f"  trailing  90d mean (recent)     : {ctx90:9,.0f}")
+print(f"  PREDICTED May-Jul               : {pred_d:9,.0f}")
+print(f"  ACTUAL    May-Jul               : {act_d:9,.0f}")
+print()
+print(f"  pred / 365d-anchor : {pred_d/ctx365:.3f}")
+print(f"  pred / 90d-recent  : {pred_d/ctx90:.3f}")
+print(f"  actual / 365d      : {act_d/ctx365:.3f}")
 
-    pred_tot = 0.0
-    for key, p in zip(SAMPLE, preds):
-        lo, hi = scaler_stats[key]
-        pred_tot += np.clip(p.values()[:, 0] * (hi - lo) + lo, 0, None).sum()
+####################################################
 
-    act_tot = 0.0
-    for key in SAMPLE:
-        with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
-            s  = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
-        idx = pd.date_range(st, periods=len(s), freq="D")
-        act_tot += s[(idx >= a_start) & (idx <= a_end)].sum()
+import numpy as np, pandas as pd, os
 
-    print(f"N_BT={N_BT:3d} ({a_start.date()} .. {a_end.date()}): "
-          f"pred {pred_tot:>9,.0f} | actual {act_tot:>9,.0f} | ratio {pred_tot/act_tot:.3f}")
+monthly = {}
+for key in predict_keys:
+    with np.load(os.path.join(CACHE_DIR, f"{safe_name(key)}.npz")) as z:
+        va = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
+    idx = pd.date_range(st, periods=len(va), freq="D")
+    s = pd.Series(va, index=idx)
+    for per, v in s.groupby(s.index.to_period("M")).sum().items():
+        monthly[per] = monthly.get(per, 0.0) + v
+
+prev = None
+print("actual monthly totals:")
+for per in sorted(monthly):
+    v = monthly[per]
+    py = per - 12
+    yoy = f"   YoY {(v/monthly[py]-1)*100:+6.1f}%" if py in monthly and monthly[py] > 0 else ""
+    mom = f"  MoM {(v/prev-1)*100:+6.1f}%" if prev else ""
+    print(f"  {per}: {v:>10,.0f}{mom}{yoy}")
+    prev = v
