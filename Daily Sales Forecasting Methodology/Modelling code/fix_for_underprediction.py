@@ -46,3 +46,14 @@ import shutil
 shutil.rmtree(os.path.join(DATA_ROOT, "scooter_predictions_2026"), ignore_errors=True)
 os.makedirs(os.path.join(DATA_ROOT, "scooter_predictions_2026"), exist_ok=True)
 print("stale prediction chunks cleared")
+
+# actual for the same calendar window last year
+import numpy as np, os, pandas as pd
+start = pd.Timestamp("2025-09-01"); end = pd.Timestamp("2025-12-09")
+tot = 0.0
+for k in predict_keys:
+    with np.load(os.path.join(CACHE_DIR, f"{safe_name(k)}.npz")) as z:
+        s = z["val_sales"]; st = pd.Timestamp(str(z["val_start"]))
+    idx = pd.date_range(st, periods=len(s), freq="D")
+    tot += s[(idx >= start) & (idx <= end)].sum()
+print(f"actual Sep 1 - Dec 9 2025: {tot:,.0f} ({tot/1e5:.2f} lacs)")
