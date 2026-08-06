@@ -13,4 +13,12 @@
 2. Predict for 2026 using previous model 
 3. XGBoost prediction
 4. Simple Linear Regression Group by PARENT_DEALER_CODE_MODEL_FAMILY
-5. 
+
+
+1. 
+
+
+'N+1','N+2','N+3','N+4',
+    'N+5','N+6','N+7','N+8','N+9','N+10',
+    'D-3','D-2','D-1','D','D+1','D+2','D+3','D+4','D+5','D+6',
+    'C','C+1','C+2','C+3','C+4','C+5','C+6'
