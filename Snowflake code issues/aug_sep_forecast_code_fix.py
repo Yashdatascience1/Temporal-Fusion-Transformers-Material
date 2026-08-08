@@ -91,3 +91,15 @@ File c:\Users\G0004878\Desktop\Virtual_environments\darts_gpu\lib\site-packages\
 --> 116     return F.linear(input, self.weight, self.bias)
 
 RuntimeError: mat1 and mat2 must have the same dtype, but got Double and BFloat16
+
+
+# same casts as training
+final_scaled_lookback_data  = [force_float32_target(ts) for ts in final_scaled_lookback_data]
+final_scaled_lookahead_data = [force_float32_cov(ts)    for ts in final_scaled_lookahead_data]
+
+for name, lst in [("lookback", final_scaled_lookback_data),
+                  ("lookahead", final_scaled_lookahead_data)]:
+    ts = lst[0]
+    sc = ts.static_covariates.dtypes.unique().tolist() if ts.has_static_covariates else "none"
+    print(f"{name:10s} n={len(lst):6,}  values={ts.dtype}  statics={sc}")
+
