@@ -62,3 +62,30 @@ lr_finder = model.lr_find(
 suggested_lr = lr_finder.suggestion()
 print("Suggested Learning Rate:", suggested_lr)
 model.lr = suggested_lr
+
+import numpy as np
+import pandas as pd
+
+# Festive peak months inside your training window (Apr'23–Dec'25)
+festive_months = [pd.Timestamp('2023-11-01'),   # Diwali Nov 12, 2023
+                  pd.Timestamp('2024-11-01'),   # Diwali Nov 1, 2024
+                  pd.Timestamp('2025-10-01')]   # Diwali Oct 20, 2025
+
+rows = []
+for ts in scaled_target_series_with_static_covariates_training[:5000]:
+    s = ts.pd_series()
+    if s.max() == 0:
+        continue
+    argmax_month = s.idxmax()
+    for fm in festive_months:
+        if fm in s.index:
+            rows.append({
+                'festive_month': fm,
+                'scaled_value': s.loc[fm],
+                'is_series_max': argmax_month == fm
+            })
+
+df = pd.DataFrame(rows)
+print(df.groupby('festive_month')['scaled_value'].describe())
+print("\nShare of series where the festive month IS the historical max:")
+print(df.groupby('festive_month')['is_series_max'].mean())
