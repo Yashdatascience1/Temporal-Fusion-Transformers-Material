@@ -124,3 +124,18 @@ festive_month
 2024-10-01    0.1636
 2025-10-01    0.1884
 Name: is_series_max, dtype: float64
+
+
+#################################
+def on_train_epoch_end(self, trainer, pl_module):
+    print(f"epoch {trainer.current_epoch}: "
+          f"allocated {torch.cuda.memory_allocated()/1e9:.2f}GB, "
+          f"reserved {torch.cuda.memory_reserved()/1e9:.2f}GB")
+    train_loss = trainer.callback_metrics.get("train_loss")
+    if train_loss is not None:
+        self.train_losses.append(float(train_loss.detach().cpu()))
+
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+
