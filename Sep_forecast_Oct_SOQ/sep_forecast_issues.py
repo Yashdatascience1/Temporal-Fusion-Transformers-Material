@@ -89,3 +89,17 @@ df = pd.DataFrame(rows)
 print(df.groupby('festive_month')['scaled_value'].describe())
 print("\nShare of series where the festive month IS the historical max:")
 print(df.groupby('festive_month')['is_series_max'].mean())
+
+
+                count      mean       std  min  25%       50%       75%  max
+festive_month                                                               
+2023-11-01     5000.0  0.425770  0.378868  0.0  0.0  0.357143  0.777778  1.0
+2024-11-01     5000.0  0.253393  0.260057  0.0  0.0  0.200000  0.400000  1.0
+2025-10-01     5000.0  0.451615  0.390078  0.0  0.0  0.400000  0.869841  1.0
+
+Share of series where the festive month IS the historical max:
+festive_month
+2023-11-01    0.1672
+2024-11-01    0.0228
+2025-10-01    0.1884
+Name: is_series_max, dtype: float64
