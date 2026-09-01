@@ -13,3 +13,52 @@ model.fit(
 
 print(f"\n✅ Training Complete. Best model saved at:\n--> {os.path.join(CHECKPOINT_DIR, 'best_model.ckpt')}")
 
+loss_logger = LossLogger()
+
+if torch.cuda.is_bf16_supported():
+    print("Awesome! bf16 is supported. Using bf16-mixed.")
+    precision_setting = "bf16-mixed"
+else:
+    print("Warning: bf16 is not supported on this GPU. Falling back to 16-mixed.")
+    precision_setting = "16-mixed"
+
+model = TFTModel(
+    input_chunk_length=16,
+    output_chunk_length=2,
+    batch_size=256,
+    dropout=0.1,
+    likelihood=None,
+    loss_fn=torch.nn.HuberLoss(delta=1.0),
+    n_epochs=100,
+    random_state=42,
+    add_encoders=add_encoders,
+    model_name=MODEL_NAME,
+    work_dir=WORK_DIR,
+    use_reversible_instance_norm=True,
+    
+    # CRITICAL CHANGE: Tell Darts to handle its native model manifest building
+    save_checkpoints=True,          
+    force_reset=True,
+    
+    pl_trainer_kwargs={
+        "callbacks": [
+            loss_logger,
+            early_stop_callback
+        ],
+        "enable_checkpointing": True,
+        "gradient_clip_val": 0.1,
+        "accelerator": "gpu", 
+        "devices": [0],
+        "precision": precision_setting
+    }
+)
+
+print("\nRunning LR Finder...")
+lr_finder = model.lr_find(
+    series=scaled_target_series_with_static_covariates_training,
+    future_covariates=scaled_future_covariates_training
+)
+
+suggested_lr = lr_finder.suggestion()
+print("Suggested Learning Rate:", suggested_lr)
+model.lr = suggested_lr
