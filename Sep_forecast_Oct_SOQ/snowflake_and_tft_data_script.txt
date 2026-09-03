@@ -75,6 +75,8 @@ sf_output_series_B_pandas.groupby("MONTH_NAME").agg(TOTAL_PREDICTION=("SF_PREDIC
 
 sf_output_series_B_pandas.drop(columns["MONTH_NAME"],inplace=True)
 
+tft_series_A_output_copy = tft_series_A_output.copy()
+
 sf_output_series_B_pandas.rename(columns={"SF_PREDICTED_SALES":"PREDICTED_SALES","DATES":"MONTH_OF_SALE"},inplace=True)
 tft_series_A_output_copy.rename(columns={"TFT_PREDICTED_SALES":"PREDICTED_SALES"},inplace=True)
 
@@ -111,3 +113,8 @@ ensemble_forecast_snowpark_df=session.create_dataframe(ensemble_forecast)
 ensemble_forecast_snowpark_df.write.mode('overwrite').save_as_table('<NAME_OF_TABLE_TO_BE_GIVE_BY_USER>')
 
 
+SELECT COUNT(*) AS raw_match,
+       COUNT_IF(TRIM(REPLACE(SERIES,'"','')) IN
+           (SELECT TRIM(REPLACE(SERIES_NAME,'"','')) FROM MOP_DATABASE.SOQ.INVALID_PARENT_DEALER_COMBINATIONS)) AS clean_match
+FROM MOP_DATABASE.SOQ.SNOWFLAKE_FORECAST_SEP_26_TO_OCT_26_SERIES_VIEW
+WHERE SERIES IN (SELECT SERIES_NAME FROM MOP_DATABASE.SOQ.INVALID_PARENT_DEALER_COMBINATIONS);
