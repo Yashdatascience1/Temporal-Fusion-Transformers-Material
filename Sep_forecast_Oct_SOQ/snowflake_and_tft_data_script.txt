@@ -1,0 +1,113 @@
+import importlib
+from snowflake.snowpark.functions import col,trim,split,lit
+from snowflake.snowpark.functions import col, sum as _sum, when, is_null
+from snowflake.snowpark import functions as F
+import sys 
+sys.path.append(r"C:\Users\G0004878\Desktop\TFT_Data\utils_files")
+import snowflake_utils
+import Snowflake_configuration
+snowflake_conn_prop = Snowflake_configuration.ds1_role_json
+from snowflake.snowpark.session import Session
+import pandas as pd
+import numpy as np
+
+session = Session.builder.configs(snowflake_conn_prop).create()
+session.use_database('MOP_DATABASE')
+session.use_schema('SOQ')
+
+tft_series_A_output = pd.read_csv(r"C:\Users\G0004878\Desktop\TFT_Data\Sep_forecast_Oct_SOQ\Step 2 - Modelling\Final_output_Series_A_TFT_Sep_Oct.csv",index_col=["MONTH_OF_SALE"],parse_dates=True,usecols=[0,1,2])
+
+Check if null values are 0 -- Use logger 
+print(tft_series_A_output[["PREDICTED_SALES","PARENT_DEALER_CODE_MODEL_FAMILY"]].isnull().sum())
+
+tft_series_A_output.reset_index(inplace=True)
+tft_series_A_output["MONTH_OF_SALE"] = pd.to_datetime(tft_series_A_output["MONTH_OF_SALE"])
+tft_series_A_output["MONTH_NAME"] = tft_series_A_output["MONTH_OF_SALE"].dt.strftime('%B')
+
+
+##Show this output in the logger : Under the heading : Forecast by TFT for series A
+tft_series_A_output.groupby("MONTH_NAME",as_index=False).agg(TOTAL_MONTHLY_SALES=("PREDICTED_SALES",'sum'))
+
+sf_output = session.sql("""
+                SELECT *
+                FROM MOP_DATABASE.SOQ.SNOWFLAKE_FORECAST_SEP_26_TO_OCT_26_SERIES_VIEW
+                """)
+
+sf_output_pandas = sf_output.to_pandas()
+
+sf_output_pandas["SERIES"] = sf_output_pandas["SERIES"].apply(lambda x:x.replace('"',''))
+sf_output_pandas.rename(columns={"SERIES":"PARENT_DEALER_CODE_MODEL_FAMILY"},inplace=True)
+
+tft_series_A_output.rename(columns={"PREDICTED_SALES":"TFT_PREDICTED_SALES"},inplace=True)
+sf_output_pandas.rename(columns={"PREDICTED_SALES":"SF_PREDICTED_SALES"},inplace=True)
+
+tft_series_A_output.reset_index(inplace=True)
+sf_output_pandas.reset_index(inplace=True)
+
+sf_output_pandas.drop(columns=['index'],inplace=True)
+
+sf_output_pandas.rename(columns={"DATES":"MONTH_OF_SALE"},inplace=True)
+
+sf_output_pandas["MONTH_NAME"] = sf_output_pandas["MONTH_OF_SALE"].apply(lambda x:x.strftime("%B - %Y"))
+sf_output_pandas.groupby("MONTH_NAME").agg(TOTAL_PREDICTION=("SF_PREDICTED_SALES","sum"))
+
+#show me the output of below line in logger under the heading : Forecast by Snowflake XGBoost for all series 
+sf_output_pandas.groupby("MONTH_NAME").agg(TOTAL_PREDICTION=("SF_PREDICTED_SALES","sum"))
+
+sf_output_pandas.drop(columns["MONTH_NAME"],inplace=True)
+
+
+sf_output_series_B = session.sql("""
+                SELECT *
+                FROM MOP_DATABASE.SOQ.SNOWFLAKE_FORECAST_SEP_26_TO_OCT_26_SERIES_VIEW
+                WHERE SERIES IN (SELECT SERIES_NAME
+                FROM MOP_DATABASE.SOQ.INVALID_PARENT_DEALER_COMBINATIONS)
+                """)
+sf_output_series_B_pandas = sf_output_series_B.to_pandas()
+
+
+sf_output_series_B_pandas["SERIES"] = sf_output_series_B_pandas["SERIES"].apply(lambda x:x.replace('"',''))
+sf_output_series_B_pandas.rename(columns={"SERIES":"PARENT_DEALER_CODE_MODEL_FAMILY"},inplace=True)
+sf_output_series_B_pandas["MONTH_NAME"] = sf_output_series_B_pandas["MONTH_OF_SALE"].apply(lambda x:x.strftime("%B - %Y"))
+
+#show me the output of below line in logger under the heading : Forecast by Snowflake XGBoost for series B 
+sf_output_series_B_pandas.groupby("MONTH_NAME").agg(TOTAL_PREDICTION=("SF_PREDICTED_SALES","sum"))
+
+sf_output_series_B_pandas.drop(columns["MONTH_NAME"],inplace=True)
+
+sf_output_series_B_pandas.rename(columns={"SF_PREDICTED_SALES":"PREDICTED_SALES","DATES":"MONTH_OF_SALE"},inplace=True)
+tft_series_A_output_copy.rename(columns={"TFT_PREDICTED_SALES":"PREDICTED_SALES"},inplace=True)
+
+concat_df = pd.concat([sf_output_series_B_pandas,tft_series_A_output_copy],ignore_index=True)
+
+
+concat_df["MONTH_NAME"] = concat_df["MONTH_OF_SALE"].apply(lambda x:x.strftime("%B - %Y"))
+
+
+##Show this in the output in the logger under the heading : Forecast if series A (from TFT) and series B (from Snowflake)
+concat_df.groupby("MONTH_NAME").agg(TOTAL_PREDICTION=("PREDICTED_SALES","sum"))
+
+
+
+joined_df = pd.merge(right=tft_series_A_output,left=sf_output_pandas,on=["MONTH_OF_SALE","PARENT_DEALER_CODE_MODEL_FAMILY"],how="left")
+
+joined_df["ENSEMBLE_SALES"] = np.where(joined_df["TFT_PREDICTED_SALES"].isnull()==True,joined_df["SF_PREDICTED_SALES"],(joined_df["TFT_PREDICTED_SALES"]+joined_df["SF_PREDICTED_SALES"])/2)
+
+joined_df["ENSEMBLE_SALES"] = (joined_df["SF_PREDICTED_SALES"] + joined_df["TFT_PREDICTED_SALES"])/2
+
+joined_df["NAME_OF_MONTH"] = joined_df["MONTH_OF_SALE"].apply(lambda x:x.strftime('%B - %Y'))
+
+#show this in the output in the logger under the heading : Forecast if series A (ensembled from TFT and Snowflake) and series B (from Snowflake)
+joined_df.groupby("NAME_OF_MONTH").agg({"ENSEMBLE_SALES":"sum"})
+
+joined_df.drop(columns=["NAME_OF_MONTH"],inplace=True)
+
+#Give user a parameter that determine if joined_df will be uploaded to snowflake or concat_df will be uploaded to snowflake
+
+#using below logic, we will upload the dataframe
+
+ensemble_forecast = joined_df.copy()
+ensemble_forecast_snowpark_df=session.create_dataframe(ensemble_forecast)
+ensemble_forecast_snowpark_df.write.mode('overwrite').save_as_table('<NAME_OF_TABLE_TO_BE_GIVE_BY_USER>')
+
+
