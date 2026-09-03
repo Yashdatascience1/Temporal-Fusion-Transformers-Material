@@ -136,6 +136,58 @@ def log_data_quality(df: pd.DataFrame, name: str, value_col: str) -> None:
                     name, df["PARENT_DEALER_CODE_MODEL_FAMILY"].nunique())
 
 
+def clip_negatives(df: pd.DataFrame, value_col: str, name: str, enabled: bool) -> pd.DataFrame:
+    """Floor negative forecasts at zero.
+
+    Applied at LOAD time, before any averaging. Clipping the inputs rather than
+    the ensemble result means a meaningless negative from one model cannot drag
+    down a valid forecast from the other. It also makes the ensemble output
+    non-negative for free: the mean of two non-negative numbers cannot be
+    negative, so no separate output clip is required.
+
+    What was clipped is always logged. A large negative volume here is a signal
+    about the upstream model, not noise to be hidden.
+    """
+    neg_mask = df[value_col] < 0
+    n_neg = int(neg_mask.sum())
+
+    if n_neg == 0:
+        logger.info("[%s] no negative %s values.", name, value_col)
+        return df
+
+    neg_total = float(df.loc[neg_mask, value_col].sum())
+    neg_min = float(df.loc[neg_mask, value_col].min())
+    neg_series = int(df.loc[neg_mask, "PARENT_DEALER_CODE_MODEL_FAMILY"].nunique())
+
+    logger.warning(
+        "[%s] %d negative %s rows across %d series | most negative = %.2f | "
+        "total negative volume = %.2f",
+        name, n_neg, value_col, neg_series, neg_min, neg_total,
+    )
+
+    sample = (
+        df.loc[neg_mask, KEY_COLS + [value_col]]
+        .sort_values(value_col)
+        .head(5)
+    )
+    for line in sample.to_string(index=False).splitlines():
+        logger.warning("[%s]   %s", name, line)
+
+    if not enabled:
+        logger.warning(
+            "[%s] clipping DISABLED (--no-clip-negatives) - negatives kept as-is.", name
+        )
+        return df
+
+    df = df.copy()
+    df[value_col] = df[value_col].clip(lower=0)
+    logger.info(
+        "[%s] clipped %d rows to 0. Total shifted upward by %.2f units.",
+        name, n_neg, abs(neg_total),
+    )
+    return df
+
+
 # --------------------------------------------------------------------------- #
 # Snowflake session
 # --------------------------------------------------------------------------- #
@@ -186,7 +238,7 @@ def normalise_columns(df: pd.DataFrame, value_col_out: str) -> pd.DataFrame:
     return df[KEY_COLS + [value_col_out]]
 
 
-def load_tft_series_a(csv_path: str) -> pd.DataFrame:
+def load_tft_series_a(csv_path: str, clip: bool = True) -> pd.DataFrame:
     banner("step 1 - load TFT forecast (series A)")
     logger.info("Reading %s", csv_path)
 
@@ -195,11 +247,12 @@ def load_tft_series_a(csv_path: str) -> pd.DataFrame:
 
     df = normalise_columns(df, "TFT_PREDICTED_SALES")
     log_data_quality(df, "TFT_SERIES_A", "TFT_PREDICTED_SALES")
+    df = clip_negatives(df, "TFT_PREDICTED_SALES", "TFT_SERIES_A", clip)
     log_monthly_totals(df, "TFT_PREDICTED_SALES", "Forecast by TFT for series A")
     return df
 
 
-def load_sf_all_series(session, view: str) -> pd.DataFrame:
+def load_sf_all_series(session, view: str, clip: bool = True) -> pd.DataFrame:
     banner("step 2 - load Snowflake XGBoost forecast (all series)")
     sql = f"SELECT * FROM {view}"
     logger.debug("SQL: %s", sql)
@@ -209,12 +262,13 @@ def load_sf_all_series(session, view: str) -> pd.DataFrame:
 
     df = normalise_columns(df, "SF_PREDICTED_SALES")
     log_data_quality(df, "SF_ALL_SERIES", "SF_PREDICTED_SALES")
+    df = clip_negatives(df, "SF_PREDICTED_SALES", "SF_ALL_SERIES", clip)
     log_monthly_totals(df, "SF_PREDICTED_SALES",
                        "Forecast by Snowflake XGBoost for all series")
     return df
 
 
-def load_sf_series_b(session, view: str, invalid_table: str) -> pd.DataFrame:
+def load_sf_series_b(session, view: str, invalid_table: str, clip: bool = True) -> pd.DataFrame:
     """Series B = series flagged in INVALID_PARENT_DEALER_COMBINATIONS.
 
     Quotes are stripped on BOTH sides inside SQL. Doing it in pandas after the
@@ -244,6 +298,7 @@ def load_sf_series_b(session, view: str, invalid_table: str) -> pd.DataFrame:
 
     df = normalise_columns(df, "SF_PREDICTED_SALES")
     log_data_quality(df, "SF_SERIES_B", "SF_PREDICTED_SALES")
+    df = clip_negatives(df, "SF_PREDICTED_SALES", "SF_SERIES_B", clip)
     log_monthly_totals(df, "SF_PREDICTED_SALES",
                        "Forecast by Snowflake XGBoost for series B")
     return df
@@ -339,6 +394,51 @@ def build_ensemble(sf_all: pd.DataFrame, tft_a: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # Load
 # --------------------------------------------------------------------------- #
+UPLOAD_COLS = ["MONTH_OF_SALE", "PARENT_DEALER_CODE_MODEL_FAMILY", "PREDICTED_SALES"]
+
+
+def prepare_for_upload(df: pd.DataFrame, upload_mode: str) -> pd.DataFrame:
+    """Project down to the three columns the target table expects.
+
+    Diagnostic columns (SOURCE, the two component forecasts) exist only for the
+    log. They are dropped here, at the last possible moment, so everything above
+    still gets to reason about them.
+    """
+    banner("step 4c - project to upload schema")
+
+    out = df.copy()
+
+    if upload_mode == "ensemble":
+        if "ENSEMBLE_SALES" not in out.columns:
+            raise KeyError("ENSEMBLE_SALES missing from ensemble dataframe.")
+        out = out.rename(columns={"ENSEMBLE_SALES": "PREDICTED_SALES"})
+
+    missing = [c for c in UPLOAD_COLS if c not in out.columns]
+    if missing:
+        raise KeyError(f"Cannot build upload payload, missing columns: {missing} "
+                       f"(have: {list(out.columns)})")
+
+    dropped = [c for c in out.columns if c not in UPLOAD_COLS]
+    if dropped:
+        logger.info("Dropping diagnostic columns before upload: %s", dropped)
+
+    rows_before = len(out)
+    out = out[UPLOAD_COLS].copy()
+    logger.info("Upload payload columns = %s | rows = %d", list(out.columns), len(out))
+    if len(out) != rows_before:
+        logger.error("Row count changed during projection: %d -> %d.", rows_before, len(out))
+
+    n_null = int(out["PREDICTED_SALES"].isna().sum())
+    if n_null:
+        logger.error(
+            "%d rows have a null PREDICTED_SALES and will land as NULL in the "
+            "target table. They contribute 0 to the total below.", n_null,
+        )
+
+    log_monthly_totals(out, "PREDICTED_SALES", "final payload written to snowflake")
+    return out
+
+
 def upload(session, df: pd.DataFrame, table: str, write_mode: str, dry_run: bool) -> None:
     banner("step 5 - upload to Snowflake")
     logger.info("Target table = %s | write mode = %s | rows = %d | cols = %s",
@@ -379,6 +479,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--upload-mode", choices=["ensemble", "concat"], default="ensemble",
                    help="Which dataframe to upload.")
     p.add_argument("--write-mode", choices=["overwrite", "append"], default="overwrite")
+    p.add_argument("--no-clip-negatives", dest="clip_negatives", action="store_false",
+                   help="Keep negative forecasts as-is. Default is to clip them to 0 "
+                        "at load time, before any averaging.")
+    p.set_defaults(clip_negatives=True)
     p.add_argument("--dry-run", action="store_true",
                    help="Run everything and log it, but do not write to Snowflake.")
     p.add_argument("--log-dir", default=DEFAULT_LOG_DIR)
@@ -399,17 +503,20 @@ def main() -> int:
     try:
         session = build_session(args.database, args.schema)
 
-        tft_a = load_tft_series_a(args.tft_csv)
-        sf_all = load_sf_all_series(session, args.forecast_view)
-        sf_b = load_sf_series_b(session, args.forecast_view, args.invalid_table)
+        tft_a = load_tft_series_a(args.tft_csv, args.clip_negatives)
+        sf_all = load_sf_all_series(session, args.forecast_view, args.clip_negatives)
+        sf_b = load_sf_series_b(session, args.forecast_view, args.invalid_table,
+                                args.clip_negatives)
 
         # Both are always built so the log carries both totals for comparison,
         # regardless of which one is uploaded.
         concat_df = build_concat(tft_a, sf_b)
         ensemble_df = build_ensemble(sf_all, tft_a)
 
-        to_upload = ensemble_df if args.upload_mode == "ensemble" else concat_df
+        selected = ensemble_df if args.upload_mode == "ensemble" else concat_df
         logger.info("Selected '%s' dataframe for upload.", args.upload_mode)
+
+        to_upload = prepare_for_upload(selected, args.upload_mode)
 
         upload(session, to_upload, args.output_table, args.write_mode, args.dry_run)
 
