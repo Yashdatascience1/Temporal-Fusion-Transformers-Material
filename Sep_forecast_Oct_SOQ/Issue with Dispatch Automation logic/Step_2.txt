@@ -1,0 +1,274 @@
+# #################################### STEP2 ##################################################
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import numpy as np
+from snowflake.snowpark.context import get_active_session
+import logging
+import time
+
+pd.options.mode.chained_assignment = None
+
+# ===================== LOGGER =====================
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+session = get_active_session()
+
+# ===================== RUN CYCLE =====================
+def get_run_cycle():
+    current_time = datetime.now().time()
+    if current_time < datetime.strptime("11:00:00", "%H:%M:%S").time():
+        return 1, current_time
+    elif current_time < datetime.strptime("14:00:00", "%H:%M:%S").time():
+        return 2, current_time
+    elif current_time < datetime.strptime("16:00:00", "%H:%M:%S").time():
+        return 3, current_time
+    elif current_time < datetime.strptime("18:00:00", "%H:%M:%S").time():
+        return 4, current_time
+    else:
+        return 5, current_time
+
+cycle_id, current_time = get_run_cycle()
+
+# ===================== CONFIG =====================
+config = {
+    "CALDAY": 20260901,
+    "Blocked_status_table": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_block_status_table",
+    "Unblocked_table": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_unblocked_table",
+    "FundBlocked": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.FundBlocked",
+    "DemandBlocked": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DemandBlocked",
+    "OpenOrdersBlocked": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.OpenOrdersBlocked",
+    "PlantBlockedStats": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.PlantBlockedStats",
+    "OverallBlockedStats": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.OverallBlockedStats",
+    "is_fund_dynamic": False
+}
+
+# ===================== PREMIA BLOCK CONFIG =====================
+PREMIA_DEALER_MIN = 17000
+PREMIA_DEALER_MAX = 18000
+
+PREMIA_SKU_KEYWORDS = [
+    'KZMCDDSCF','X25ADDSCF','XOOFDSSCF','XPLBBDSSF','XPLBTDSSF',
+    'KZMBDDSCF','X25ACDSCF','X44BTDSCF','XPLGCDSSF','XPLGDDSSF','XPLGHDSSF'
+]
+
+# ===================== COMMON UTILS =====================
+def delete_insert(table_name, cycle_id, run_date):
+    session.sql(
+        f"""
+        DELETE FROM {table_name}
+        WHERE RUN_DATE = '{run_date}'
+        AND RUN_CYCLE_ID = {cycle_id};
+        """
+    ).collect()
+
+def write_to_snowflake(df, table_name):
+    session.create_dataframe(df).write.mode("append").save_as_table(table_name)
+
+def fetch_data(query):
+    return session.sql(query).to_pandas()
+
+# ===================== DATA LOAD =====================
+
+
+    
+def process_prioritisation_df():
+    query = """
+    SELECT *
+    FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_prioritisation
+    WHERE (run_date, run_cycle_id) IN (
+        SELECT run_date, MAX(run_cycle_id)
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_prioritisation
+        WHERE run_date = (SELECT MAX(run_date) FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_prioritisation)
+        GROUP BY run_date
+    );
+    """
+    df = fetch_data(query)
+    df['QUANTITY_DISPATCHED'] = df['QUANTITY_DISPATCHED'].fillna(0)
+    df['DEALER'] = df['DEALER'].astype(str)
+    return df
+
+def process_demand_blocks():
+    query = """
+    SELECT DEALER_CODE, PLANT_HHHD, PLANT_HHHG, PLANT_HHHU, PLANT_HM4N, PLANT_HM5V, PLANT_HM6C
+    FROM SAP_DATA_DATABASE.SAP_DATA.DEMAND_BLOCKERS_OPEN
+    WHERE DATE IN (SELECT MAX(DATE) FROM SAP_DATA_DATABASE.SAP_DATA.DEMAND_BLOCKERS_OPEN)
+    AND LEN(DEALER_CODE) = 5;
+    """
+    df = fetch_data(query)
+    plant_cols = [c for c in df.columns if c.startswith('PLANT_')]
+    df.rename(columns={'DEALER_CODE': 'DEALER'}, inplace=True)
+    df['DEALER'] = df['DEALER'].astype(str)
+
+    df = df.groupby('DEALER').agg(
+        {c: lambda x: 'Blocked' if 'Blocked' in x.values else 'Not Blocked' for c in plant_cols}
+    ).reset_index()
+
+    df = df.melt(id_vars=['DEALER'], value_vars=plant_cols,
+                 var_name='PLANT', value_name='DEMAND_BLOCK_STATUS')
+    df['PLANT'] = df['PLANT'].str.replace('PLANT_', '')
+    return df
+
+def process_fund_blocks():
+    query = """
+    SELECT *
+    FROM SAP_DATA_DATABASE.SAP_DATA.FUND_AVAILABILITY_HOURLY_DATA
+    WHERE REFRESH_DATE IN (
+        SELECT MAX(REFRESH_DATE) FROM SAP_DATA_DATABASE.SAP_DATA.FUND_AVAILABILITY_HOURLY_DATA
+    );
+    """
+    df = fetch_data(query)
+    df['DEALER'] = df['DEALER'].astype(str)
+    df['OBL_CR_LIMIT_AVAIL'] = pd.to_numeric(df['OBL_CR_LIMIT_AVAIL'], errors='coerce').fillna(0)
+    df['FUND_BLOCK_STATUS'] = np.where(df['OBL_CR_LIMIT_AVAIL'] < 1_000_000, 'Blocked', 'Not Blocked')
+    return df[['DEALER', 'OBL_CR_LIMIT_AVAIL', 'FUND_BLOCK_STATUS']]
+
+def open_order_block():
+    query = f"""
+    SELECT PLANT, DEALER_CODE AS DEALER, SKU, SUM(TOTAL_OPEN_ORDER_QTY) AS TOTAL_OPEN_ORDER_QTY
+    FROM SAP_DATA_DATABASE.SAP_DATA.VW_OPEN_ORDERS_LIVE
+    WHERE TOTAL_OPEN_ORDER_QTY > 0
+    AND OPEN_ORDER_DATE >= {config['CALDAY']}
+    GROUP BY 1,2,3;
+    """
+    try:
+        df = fetch_data(query)
+        df['DEALER'] = df['DEALER'].astype(str)
+        df['OPEN_ORDER_BLOCK_STATUS'] = 'Blocked'
+        return df
+    except:
+        return pd.DataFrame(columns=['PLANT','DEALER','SKU','TOTAL_OPEN_ORDER_QTY','OPEN_ORDER_BLOCK_STATUS'])
+
+def fetch_runner_skus():
+    query = f"""
+    SELECT *
+    FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.RUNNER_SKU_TABLE
+    WHERE (run_date, run_cycle_id) IN (
+        SELECT run_date, MAX(run_cycle_id)
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.RUNNER_SKU_TABLE
+        WHERE run_date = (SELECT MAX(run_date) FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.RUNNER_SKU_TABLE)
+        GROUP BY run_date
+    );
+    """
+    df = fetch_data(query)
+
+    df['DEALER'] = df['DEALER'].astype(str)
+    return df
+    
+# ===================== MERGE =====================
+def merge_data(prioritisation_df, demand_blocks, fund_blocks, open_orders):
+    df = prioritisation_df.merge(
+        demand_blocks, on=['DEALER','PLANT'], how='left'
+    )
+
+    df = df.merge(
+        fund_blocks[['DEALER','FUND_BLOCK_STATUS']], on='DEALER', how='left'
+    )
+
+    df = df.merge(
+        open_orders[['DEALER','PLANT','SKU','OPEN_ORDER_BLOCK_STATUS']],
+        on=['DEALER','PLANT','SKU'], how='left'
+    )
+
+    df['DEMAND_BLOCK_STATUS'] = df['DEMAND_BLOCK_STATUS'].fillna('Not Blocked')
+    df['FUND_BLOCK_STATUS'] = df['FUND_BLOCK_STATUS'].fillna('Not Blocked')
+    df['OPEN_ORDER_BLOCK_STATUS'] = df['OPEN_ORDER_BLOCK_STATUS'].fillna('Not Blocked')
+
+    return df
+
+
+# ===================== MAIN =====================
+def main():
+    run_date = pd.Timestamp.now().date()
+    
+    Blocked_status_table = config['Blocked_status_table']
+    Unblocked_table =  config['Unblocked_table']
+    FundBlocked = config['FundBlocked']
+    DemandBlocked =  config['DemandBlocked']
+    OpenOrdersBlocked = config['OpenOrdersBlocked']  
+    PlantBlockedStats = config['PlantBlockedStats'] 
+    OverallBlockedStats = config['OverallBlockedStats'] 
+    is_fund_dynamic = config['is_fund_dynamic']
+    
+    prioritisation_df = process_prioritisation_df()
+    demand_blocks = process_demand_blocks()
+    fund_blocks = process_fund_blocks()
+    open_order_df = open_order_block()
+    runner_skus = fetch_runner_skus()
+    runner_skus
+    
+
+    blocked_df = merge_data(prioritisation_df, demand_blocks, fund_blocks, open_order_df)
+
+    # ================= PREMIA DEALER SKU BLOCK =================
+    blocked_df['DEALER_INT'] = pd.to_numeric(blocked_df['DEALER'], errors='coerce')
+
+    
+    premia_mask = (
+        blocked_df['DEALER_INT'].between(PREMIA_DEALER_MIN, PREMIA_DEALER_MAX) &
+        blocked_df['SKU'].astype(str).apply(lambda x: any(k in x for k in PREMIA_SKU_KEYWORDS))
+    )
+
+    blocked_df.loc[premia_mask, [
+        'DEMAND_BLOCK_STATUS','FUND_BLOCK_STATUS','OPEN_ORDER_BLOCK_STATUS'
+    ]] = 'Blocked'
+
+    blocked_df.drop(columns=['DEALER_INT'], inplace=True)
+
+    blocked_df['RUN_DATE'] = run_date
+    blocked_df['RUN_CYCLE_ID'] = cycle_id
+    blocked_df['RUN_CYCLE_TIME'] = current_time
+
+    unblocked_df = blocked_df.loc[
+        (blocked_df.DEMAND_BLOCK_STATUS == 'Not Blocked') &
+        (blocked_df.FUND_BLOCK_STATUS == 'Not Blocked') &
+        (blocked_df.OPEN_ORDER_BLOCK_STATUS == 'Not Blocked')
+    ].drop(
+        ['DEMAND_BLOCK_STATUS','FUND_BLOCK_STATUS','OPEN_ORDER_BLOCK_STATUS'],
+        axis=1
+    )
+
+   
+    runner_skus= runner_skus.loc[runner_skus.SKU_CATEGORY=='RUNNER',:]
+    runner_skus['DEALER_SKU'] = runner_skus.DEALER.astype(str) + runner_skus.SKU
+    unblocked_df['DEALER_SKU'] = unblocked_df.DEALER.astype(str) + unblocked_df.SKU
+    #unblocked_df = unblocked_df.loc[unblocked_df.DEALER_SKU.isin(runner_skus.DEALER_SKU)]
+    unblocked_df.drop(['DEALER_SKU'],axis=1,inplace=True)
+    
+    unblocked_df['RUN_DATE'] = run_date
+    unblocked_df['RUN_CYCLE_ID'] = cycle_id
+    unblocked_df['RUN_CYCLE_TIME'] = current_time
+
+    demand_blocks['RUN_DATE'] = pd.Timestamp.now().date()
+    demand_blocks['RUN_CYCLE_ID'] = cycle_id
+    demand_blocks['RUN_CYCLE_TIME'] = current_time
+    
+    fund_blocks['RUN_DATE'] = pd.Timestamp.now().date()
+    fund_blocks['RUN_CYCLE_ID'] = cycle_id
+    fund_blocks['RUN_CYCLE_TIME'] = current_time
+    
+    open_order_df['RUN_DATE'] = pd.Timestamp.now().date()
+    open_order_df['RUN_CYCLE_ID'] = cycle_id
+    open_order_df['RUN_CYCLE_TIME'] = current_time
+
+
+    # ================= DELETE + INSERT =================
+    delete_insert(config['Blocked_status_table'], cycle_id, run_date)
+    delete_insert(config['Unblocked_table'], cycle_id, run_date)
+    delete_insert(DemandBlocked,cycle_id,run_date=pd.Timestamp.now().date())
+    delete_insert(FundBlocked,cycle_id,run_date=pd.Timestamp.now().date())
+    delete_insert(OpenOrdersBlocked,cycle_id,run_date=pd.Timestamp.now().date())
+    
+
+    write_to_snowflake(blocked_df, config['Blocked_status_table'])
+    write_to_snowflake(unblocked_df, config['Unblocked_table'])
+    write_to_snowflake(open_order_df,OpenOrdersBlocked )
+    write_to_snowflake(demand_blocks,DemandBlocked)
+    write_to_snowflake(fund_blocks,FundBlocked)
+
+    return blocked_df, unblocked_df
+
+# ===================== RUN =====================
+final_blocked_df, final_unblocked_df = main()
+time.sleep(20)

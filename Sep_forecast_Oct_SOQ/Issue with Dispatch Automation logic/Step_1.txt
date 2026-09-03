@@ -1,0 +1,1109 @@
+# #################################### STEP1 ##################################################
+import streamlit as st
+import pandas as pd
+import datetime
+from datetime import datetime,timedelta
+import numpy as np
+from snowflake.snowpark.context import get_active_session
+import re
+import yaml
+import logging
+import os
+import time
+# PLANT,DEALER, DISPATCH_QTY_TILL_MONTH, IS_PART_PLAN -- dispatch daily table
+
+
+def get_run_cycle():
+    # Get the current time
+    current_time = datetime.now().time()
+    # Define time ranges
+    if current_time >= datetime.strptime("00:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("11:00:00", "%H:%M:%S").time():
+        return 1,current_time
+    elif current_time >= datetime.strptime("11:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("14:00:00", "%H:%M:%S").time():
+        return 2,current_time
+    elif current_time >= datetime.strptime("14:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("16:00:00", "%H:%M:%S").time():
+        return 3,current_time
+    elif current_time >= datetime.strptime("16:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("18:00:00", "%H:%M:%S").time():
+        return 4,current_time
+    else:
+        return 5,current_time
+
+# Example usage
+cycle_id,current_time = get_run_cycle()
+print(f"Current run cycle: {cycle_id}")
+
+# Initialize logger
+logging.basicConfig(level=logging.INFO,format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Add the B2G < 0 table and 
+
+def drop_table(table_name):
+    query = f'DROP TABLE IF EXISTS {table_name};'
+    logger.info(f'Dropping table: {table_name}')
+    session.sql(query).collect()
+    
+
+def delete_insert(table_name, cycle_id, current_date=pd.Timestamp.now().date()):
+    # Construct the SQL query with both conditions
+    query = f"""
+        DELETE FROM {table_name} 
+        WHERE RUN_DATE = '{current_date}' 
+        AND RUN_CYCLE_ID = {cycle_id};
+    """
+    # Log the action
+    logger.info(f"Deleting entries from {table_name} where RUN_DATE = {current_date} and RUN_CYCLE_ID = {cycle_id}")
+    # Execute the query
+    session.sql(query).collect()
+
+    #session.sql.collect()
+
+def write_to_snowflake(df, table_name, mode="append"):     
+    logger.info(f'Writing to Snowflake table {table_name} with mode {mode}')
+    agg_data_sp = session.create_dataframe(df)
+    agg_data_sp.write.mode(mode).save_as_table(table_name)
+
+
+#from geopy.distance import geodesic as GD
+
+# Initialize session
+session = get_active_session()
+
+
+def remove_trailing_numbers(input_string):
+    result = re.sub(r' \d+.', '', input_string)
+    return result.strip()
+
+config={
+  "start_date": "2026-09-01",
+  "customer_types": ["Individual"],
+  "agg_type": "daily",
+  "combine_models": "",
+  "planning_month": "2026-09-01",
+  "CALDAY" : "20260901",
+  "CAL_DATE" : "2026-09-01",
+  "database"  : {
+     "mop_table" :"ANALYTICS_DATABASE.ANALYTICS_SALES.Dispatch_Plan_F_monthwise",
+      "OBD_MAPPING" : "MOP_DATABASE.SOQ.OBD2_MAPPING_VIEW",
+   # "mop_table": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.MOP_SEP_2024_SAMPLE_P03",
+    "ecr_sales_table": "ANALYTICS_DATABASE.ANALYTICS_SALES.CUSTOMER_RETAILS",
+    "predicted_sales_table": "WORK_DATABASE.MOP.SOQ_DATA_FINAL",
+    "stock_availability_table": "ANALYTICS_DATABASE.ANALYTICS_SALES.STOCK_AVAILABILITY",
+    "dispatch_table" : "ANALYTICS_DATABASE.ANALYTICS_SALES.FINAL_DISPATCH_VIEW",
+    "Weekly_table":"MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Weekly_dispatch_prioritisation",
+    "Daily_table":"MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_prioritisation",
+    "ZeroB2G_table" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.ZeroB2G_table",
+    "Unconstrained_table" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file",
+    "DailyDispatchTable" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyDispatchTable",
+    "DailyLeadTimeTable" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyLeadTimeTable",
+    "runner_skus_table" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.RUNNER_SKU_TABLE"
+  }
+}
+
+
+
+
+# Fetch Parent Dealer Mapping
+def getParentDealerMapping():
+    query = '''
+    SELECT DISTINCT X_DEALER_CODE_HIER AS DEALER_CODE, PAR_ORG_NAME 
+    FROM FIVETRAN_DATABASE.ORACLE_LDP_OLAP_SCHEMA.WC_INT_ORG_DH 
+    WHERE X_DEALER_CODE_HIER IS NOT NULL
+    '''
+    parent_dealer_mapping = session.sql(query).to_pandas()
+    parent_dealer_mapping['PARENT_DEALER_CODE'] = parent_dealer_mapping['PAR_ORG_NAME'].apply(lambda x: str(x).split("-")[0].strip())
+    logger.info(f'Retrieved {len(parent_dealer_mapping)} parent dealer mappings')
+    return parent_dealer_mapping
+
+# Fetch SKU Supercedence data
+def fetchSKUSupercedence():
+    query = '''SELECT * FROM MOP_DATABASE.SOQ.SKU_SUPERCEDENCE'''
+    logger.info('Fetching SKU Supercedence data')
+    data = session.sql(query).to_pandas()
+    data = data.rename(columns={"UNIQUEFAMILYCODE": 'UNIQUE FAMILY CODE'})
+    logger.info(f'Retrieved {data.shape[0]} rows of SKU Supercedence data')
+    return data
+
+def fetchOBDData(session):
+    OBD_MAPPING = config['database']['OBD_MAPPING']
+    obd_mapping = session.table(OBD_MAPPING).to_pandas()
+    obd_mapping['SKU'] = obd_mapping['PREVIOUS_OBD_SKU']
+    return obd_mapping
+    
+# Fetch Daily ECR Sales
+def getDailyECR(customer_type_to_include, start_date, config):
+    customer_type_str = ",".join([f"'{types}'" for types in customer_type_to_include])
+    ecr_sales_table = config['database']['ecr_sales_table']
+    
+    query = f'''
+    SELECT  DEALER_CODE, MODEL, SKU, CAL_DATE, MONTH(CAL_DATE) AS CAL_MONTH, YEAR(CAL_DATE) AS CAL_YEAR, 
+           SUM(INVOICED_SALES) AS INVOICED_SALES, SUM(CANCELLED_SALES) AS CANCELLED_SALES, SUM(RETURNED_SALES) AS RETURNED_SALES 
+    FROM {ecr_sales_table}
+    WHERE X_CUSTOMER_TYPE IN ({customer_type_str}) 
+      AND CAL_DATE >= current_date - (3 * 365)
+    GROUP BY DEALER_CODE, MODEL, SKU, CAL_DATE
+    '''
+    logger.info(f'Fetching Daily ECR Sales from {ecr_sales_table} starting {start_date}')
+    ecr_sales = session.sql(query).to_pandas()
+    obd_data=fetchOBDData(session)
+   
+    ecr_sales=pd.merge(ecr_sales,obd_data,on="SKU",how="left")
+   
+        ## Null in Current ObD SKU - means, current SKU is the same as sku
+   
+    ecr_sales['CURRENT_OBD_SKU'] = ecr_sales['CURRENT_OBD_SKU'].fillna(ecr_sales['SKU'])
+   
+    ecr_sales=ecr_sales.drop(['SKU'],axis=1)
+    ecr_sales=ecr_sales.rename(columns={'CURRENT_OBD_SKU':'SKU'})
+    
+    ecr_sales['NET_SALES'] = ecr_sales['INVOICED_SALES'].fillna(0) + ecr_sales['CANCELLED_SALES'].fillna(0) + ecr_sales['RETURNED_SALES'].fillna(0)
+    logger.info(f'Retrieved {len(ecr_sales)} rows of Daily ECR sales')
+    return ecr_sales
+    
+def fetchMOPData(config,parent_dealer_mapping):
+    mop_table = config['database']['mop_table']
+    CAL_DATE  = config['CAL_DATE']
+    logger.info(f'Fetching MOP Data from {mop_table}')
+    query = f"""select DISTINCT DEALERCODE as DEALER_CODE, MODEL,PLANT, SKU, PLAN_QTY AS QUANTITY, VERSION    
+                from {mop_table}   
+                where CAL_DATE = '{CAL_DATE}' 
+                and  VERSION = (
+                select distinct version from {mop_table} where  CAL_DATE = '{CAL_DATE}' order by version desc limit 1);"""
+    print(query)
+    mop_data = session.sql(query).to_pandas()
+    ("list of DEALER WITH NO PARENT DEALERS :\n", mop_data.loc[~mop_data.DEALER_CODE.isin(parent_dealer_mapping.DEALER_CODE),'DEALER_CODE'] )
+    print(os.getcwd())
+    #mop_data.loc[~(mop_data.DEALER_CODE.isin(parent_dealer_mapping.DEALER_CODE)),'DEALER_CODE'].to_csv('snow://notebook/MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DISPATCH_DEMAND_20240923/missing_delaers.csv', index=False)
+    logger.info(f'Retrieved missing dealers with parent dealers to missing_dealers.csv file')
+    
+    #print(mop_data.loc[~(mop_data.DEALER_CODE.isin(parent_dealer_mapping.DEALER_CODE)),'DEALER_CODE'].shape)
+    mop_data = pd.merge(mop_data, parent_dealer_mapping[['DEALER_CODE', 'PARENT_DEALER_CODE']], on="DEALER_CODE", how="inner")
+    mop_data = mop_data.groupby(['DEALER_CODE', 'SKU', 'PLANT','VERSION', 'MODEL'])['QUANTITY'].sum().reset_index()
+    mop_data.columns = ['DEALER', 'SKU','PLANT','VERSION','MODEL', 'QUANTITY']
+    # obd_data = fetchOBDData(session)
+    # mop_data = pd.merge(mop_data, obd_data, on="SKU", how="left")
+   
+    # # Null in Current OBD SKU means the current SKU is the same as SKU
+    # mop_data['CURRENT_OBD_SKU'] = mop_data['CURRENT_OBD_SKU'].fillna(mop_data['SKU'])
+
+    # mop_data.drop('SKU',axis=1,inplace=True)
+    # mop_data = mop_data.rename(columns={'CURRENT_OBD_SKU': 'SKU'})
+    mop_data.DEALER   = mop_data.DEALER.astype(int).astype(str)
+    logger.info(f'Retrieved {len(mop_data)} rows of MOP data')
+    
+    return mop_data
+
+def fetchTransitTime():
+    query = f'''
+    select  
+    DISTINCT
+    PLANT, 
+    TRIM(PARENT_DEALER_CODE) AS DEALER, SKU, TRANSIT_TIME AS TRANSIT_TIME FROM MOP_DATABASE.SOQ.TRANSIT_DEALER_SKU_PLANT_MAPPING_NEW;'''
+
+    
+    #TRIM(PARENT_DEALER_CODE) AS DEALER, SKU, TRANSIT_TIME AS TRANSIT_TIME FROM MOP_DATABASE.SOQ.PARENT_DEALER_TRANSIT_TIME_SKU_NEW;'''
+    Transit_time = session.sql(query).to_pandas()
+    
+    
+    data = {
+        "PLANT": ['HHHG', 'HHHU', 'HHHD', 'HHHG', 'HM4N', 'HHHG', 'HHHU', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V', 'HM5V'],
+        "DEALER": [12266, 12266, 12266, 17057, 12266, 17043, 17043, 12236, 12205, 11964, 11963, 11467, 11298, 11297, 11246, 10480, 10239, 11740, 12117, 11370, 11255, 11570],
+        "TRANSIT_TIME": [3, 4, 3, 7, 3, 3, 3, 9, 10, 9, 10, 10, 8, 10, 9, 10, 11, 9, 9, 9, 10, 10]
+    }
+    
+
+    df = pd.DataFrame(data)
+    df.DEALER = df.DEALER.astype(str)
+    df = pd.merge(df,Transit_time[['PLANT','DEALER','SKU']].copy(), on=['PLANT','DEALER'],how='left')
+
+    Transit_time= pd.concat([Transit_time,df],axis=0)
+    Transit_time.sort_values(['PLANT','DEALER','SKU','TRANSIT_TIME'],ascending=[1,1,1,0],inplace=True)
+    Transit_time.drop_duplicates(['PLANT','DEALER','SKU'], inplace=True)
+    
+
+    return Transit_time
+
+# Get Predicted Sales
+def fetchPredictedSales(config,filter):
+    predicted_sales_table = config['database']['predicted_sales_table']
+    planning_month = config['planning_month']
+    CAL_DATE  = config['CAL_DATE']
+    #STOCK_CAL_DATE = '20260403'
+    predicted_sales_query=f'''
+    SELECT PARENT_DEALER_CODE AS DEALER, SKU, PREDICTED_SALES_SKU from MOP_DATABASE.DISPATCH_AUTOMATION_OBL.PREDICTION_SKU_DATA
+    WHERE PLANNING_MONTH= '{CAL_DATE}';
+    '''
+    
+
+    logger.info(f'Fetching Predicted Sales from PREDICTION_SKU_DATA table for month {planning_month}')
+
+    predicted_sales=session.sql(predicted_sales_query).to_pandas()
+
+    logger.info(f'Shape of Predicted Sales {predicted_sales.shape}')
+
+    ## fetch safety stock
+    query = f"""    SELECT DISTINCT PARENT_DEALER_CODE AS DEALER,SKU,
+        ROUND(LEAST(SAFETY_STOCK, PREDICTED_SALES_SKU * 3)) AS SAFETY_STOCK, SAFETY_STOCK_DAYS
+        FROM MOP_DATABASE.SOQ.SOQ_DATA_FINAL_VERSION_WITH_AO_VERSION_4  
+        where  PLANNING_MONTH = '{CAL_DATE}' AND STOCK_DATE_PERIOD='end'  
+        AND DEMAND_VARIABILITY_TYPE='SKU_BASED' AND SERVICE_LEVEL=80 and run_version = 53;"""
+
+    #RUN_VERSION=1 AND RUN_DATE='20250601'   AND STOCK_DATE_PERIOD='end' and planning_month='2025-06-01' and  SERVICE_LEVEL=90 AND DEMAND_VARIABILITY_TYPE='SKU_BASED'
+
+    safety_stock=session.sql(query).to_pandas()
+    logger.info(f'Fetching Safety Stock from {predicted_sales_table} for month {planning_month}')
+    logger.info(f'Shape of Safety Stock {safety_stock.shape}')
+    predicted_sales=pd.merge(predicted_sales,safety_stock,on=['DEALER','SKU'])
+    logger.info(f'Shape  Safety Stock+Prediction {predicted_sales.shape}')
+    
+
+    
+    logger.info(f'Fetching Predicted Sales from {predicted_sales_table} for month {planning_month}')
+    now = datetime.now()
+    next_month = now.replace(day=28) + timedelta(days=4)  # Guarantees we move to the next month
+    last_day = next_month.replace(day=1) - timedelta(days=1)
+    print(last_day.day, "last day")
+        
+
+    
+    Transit_time=fetchTransitTime()
+    predicted_sales=pd.merge(predicted_sales,Transit_time, on =['DEALER','SKU'], how='left')
+    ###  making transit time if Null to 0 -aiswarya
+   
+    predicted_sales.loc[pd.isnull(predicted_sales['TRANSIT_TIME']),'TRANSIT_TIME']=0
+    print(predicted_sales.columns)
+    predicted_sales['AVG_LEAD_TIME_STOCK'] = np.ceil((predicted_sales.PREDICTED_SALES_SKU.fillna(0)/last_day.day) * predicted_sales.TRANSIT_TIME.fillna(0)) 
+    predicted_sales['REORDER_LEVEL'] = predicted_sales.SAFETY_STOCK.fillna(0) + predicted_sales.AVG_LEAD_TIME_STOCK.fillna(0)
+    
+    if filter == 'True':
+        predicted_sales = predicted_sales.loc[(predicted_sales.PREDICTED_SALES_SKU.fillna(0) > 0) | (predicted_sales.REORDER_LEVEL.fillna(0) > 0)]
+    logger.info(f'Retrieved {predicted_sales.shape[0]} rows of Predicted Sales data')
+    
+    return predicted_sales
+
+def open_order_block(session):
+    """
+    Create a fabricated lookup table for SKU, PLANT, DEALER, and OPEN_ORDER_QTY.
+    :param final_prioritisation_df: DataFrame containing prioritisation data
+    :return: Fabricated lookup DataFrame with SKU, PLANT, DEALER, and OPEN_ORDER_QTY
+    """
+    # Filter rows where B2G > 5 and select unique combinations of SKU, PLANT, and DEALER
+    yday = (datetime.today() - timedelta(days=1)).strftime('%Y%m%d')
+    CALDAY = config['CALDAY']
+    query = fquery = f"""
+        SELECT
+            PLANT,
+            DEALER_CODE AS DEALER,
+            SKU,
+            SUM(TOTAL_OPEN_ORDER_QTY) AS TOTAL_OPEN_ORDER_QTY
+        FROM SAP_DATA_DATABASE.SAP_DATA.VW_OPEN_ORDERS_LIVE
+        WHERE OPEN_ORDER_DATE >= {CALDAY}
+        GROUP BY PLANT, DEALER, SKU; """
+    try :
+        
+        open_order_block = session.sql(query).to_pandas()
+        
+   
+        if open_order_block.shape[0] > 0 :
+            open_order_block['OPEN_ORDER_BLOCK_STATUS'] = 'Blocked'
+        else :
+            open_order_block['OPEN_ORDER_BLOCK_STATUS'] = None   
+        return open_order_block
+       
+    except:
+        print(" Open orders data not present")
+        open_order_block = pd.DataFrame(data= None, columns = ['PLANT', 'DEALER', 'SKU' ,'TOTAL_OPEN_ORDER_QTY','OPEN_ORDER_BLOCK_STATUS'])
+        return open_order_block
+
+
+
+    
+
+
+def fetchDispatchData(config, parent_dealer_mapping):
+    dispatch_table = config['database']['dispatch_table']
+    CALDAY = config['CALDAY']
+
+    yday = (datetime.today() - timedelta(days=1)).strftime('%Y%m%d')
+    
+    query = f"""select SOLD_TO as DEALER_CODE,  SKU , PLANT, sum(QUANT_B) as Quantity_dispatched 
+        from {dispatch_table} where CALDAY >= {CALDAY} group by 1,2,3;"""
+
+    try :
+        Dispatch_data = session.sql(query).to_pandas()
+        if Dispatch_data.shape[0] > 0:
+            Dispatch_data.DEALER_CODE = Dispatch_data.DEALER_CODE.astype(int).astype(str)
+            Dispatch_data = pd.merge(Dispatch_data, parent_dealer_mapping[['DEALER_CODE', 'PARENT_DEALER_CODE']], on="DEALER_CODE", how="inner")
+            Dispatch_data = Dispatch_data.groupby(['DEALER_CODE', 'SKU','PLANT'])['QUANTITY_DISPATCHED'].sum().reset_index()
+            Dispatch_data.columns = ['DEALER', 'SKU', 'PLANT', 'QUANTITY_DISPATCHED']
+        #Dispatch_data.DEALER = Dispatch_data.DEALER.astype(int).astype(str)
+            logger.info(f'Retrieved {len(Dispatch_data)} rows of Dispatch data')
+            return Dispatch_data
+        else:
+            Dispatch_data = pd.DataFrame(data= None, columns = ['DEALER', 'SKU', 'PLANT' ,'QUANTITY_DISPATCHED'])
+            return Dispatch_data  
+    except:
+        print(" Dispatch  data not present")
+        Dispatch_data = pd.DataFrame(data= None, columns = ['DEALER', 'SKU', 'PLANT' ,'QUANTITY_DISPATCHED'])
+        return Dispatch_data     
+
+
+def fetchTodayDispatchData(config, parent_dealer_mapping):
+    dispatch_table = config['database']['dispatch_table']
+    CALDAY = config['CALDAY']
+
+    yday = (datetime.today() - timedelta(days=1)).strftime('%Y%m%d')
+    tday = (datetime.today()).strftime('%Y%m%d')
+    
+    query = f"""select SOLD_TO as DEALER_CODE, SKU , PLANT, sum(QUANT_B) as Quantity_dispatched 
+        from {dispatch_table} where CALDAY = {tday} group by 1,2,3;"""
+
+    try :
+        Dispatch_data = session.sql(query).to_pandas()
+        if Dispatch_data.shape[0] > 0:
+            Dispatch_data.DEALER_CODE = Dispatch_data.DEALER_CODE.astype(int).astype(str)
+            Dispatch_data = pd.merge(Dispatch_data, parent_dealer_mapping[['DEALER_CODE', 'PARENT_DEALER_CODE']], on="DEALER_CODE", how="inner")
+            Dispatch_data = Dispatch_data.groupby(['DEALER_CODE', 'SKU'])['QUANTITY_DISPATCHED'].sum().reset_index()
+            Dispatch_data.columns = ['DEALER', 'SKU', 'QUANTITY_DISPATCHED_TODAY']
+        #Dispatch_data.DEALER = Dispatch_data.DEALER.astype(int).astype(str)
+            logger.info(f'Retrieved {len(Dispatch_data)} rows of Dispatch data')
+            return Dispatch_data
+        else:
+            Dispatch_data = pd.DataFrame(data= None, columns = ['DEALER', 'SKU' ,'QUANTITY_DISPATCHED_TODAY'])
+            return Dispatch_data  
+    except:
+        print(" Dispatch  data not present")
+        Dispatch_data = pd.DataFrame(data= None, columns = ['DEALER', 'SKU' ,'QUANTITY_DISPATCHED_TODAY'])
+        return Dispatch_data     
+
+
+# def fetchPlantLevelDispatchData(config, parent_dealer_mapping):
+#     dispatch_table = config['database']['dispatch_table']
+#     CALDAY = config['CALDAY']
+#     query = f"""select SOLD_TO as DEALER_CODE, BIC_ZSD_MATNR as SKU , PLANT, sum(QUANT_B) as Quantity_dispatched 
+#         from {dispatch_table} where CALDAY >= {CALDAY} group by 1,2,3;"""
+
+#     logger.info(f'Fetching Dispatch data from {dispatch_table} after {CALDAY}')
+#     Dispatch_data = session.sql(query).to_pandas()
+#     Dispatch_data.DEALER_CODE = Dispatch_data.DEALER_CODE.astype(int).astype(str)
+#     Dispatch_data = pd.merge(Dispatch_data, parent_dealer_mapping[['DEALER_CODE', 'PARENT_DEALER_CODE']], on="DEALER_CODE", how="inner")
+#     Dispatch_data = Dispatch_data.groupby(['DEALER_CODE', 'SKU','PLANT'])['QUANTITY_DISPATCHED'].sum().reset_index()
+#     Dispatch_data.columns = ['DEALER', 'SKU', 'PLANT', 'QUANTITY_DISPATCHED']
+#     #Dispatch_data.DEALER = Dispatch_data.DEALER.astype(int).astype(str)
+#     logger.info(f'Retrieved {len(Dispatch_data)} rows of Dispatch data')
+#     return Dispatch_data
+
+
+# def fetchDealerInventory(config):
+#     stock_availability_table = config['database']['stock_availability_table']
+#     CAL_DATE = config['CAL_DATE']
+    
+#     yday = (datetime.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+#     query = f"""
+#         SELECT DEALER_CODE, SKU, DATE(CAL_DATE) as CLOSING_STOCK_DATE, CLOSING_STOCK AS CURRENT_AVAILABLE_STOCK 
+#         FROM {stock_availability_table} WHERE DATE(CAL_DATE) = '{yday}' ;"""
+#     logger.info(f'Fetching Dealer Inventory from {stock_availability_table} after {CAL_DATE}')
+#     inventory_dealer = session.sql(query).to_pandas()
+#     logger.info(f'Retrieved {len(inventory_dealer)} rows of Dealer Inventory data')
+#     return inventory_dealer
+
+
+def fetchDealerInventory(config):
+    '''
+    In this function we consider the stock availability of the previous OBD variant SKU as well
+    to get the Stock Availability if Is_OBD is true
+    '''
+    CAL_DATE = config['CAL_DATE']
+    stock_availability_table = config['database']['stock_availability_table']
+    yday = (datetime.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+    query = f"""
+    SELECT DEALER_CODE, SKU, DATE(CAL_DATE) as CLOSING_STOCK_DATE, CLOSING_STOCK AS CURRENT_AVAILABLE_STOCK 
+    FROM {stock_availability_table} WHERE DATE(CAL_DATE) = '{yday}' ;"""
+
+    inventory_dealer = session.sql(query).to_pandas()
+ 
+    #if IS_OBD:
+    obd_data = fetchOBDData(session)
+    inventory_dealer = pd.merge(inventory_dealer, obd_data, on="SKU", how="left")
+   
+    # Null in Current OBD SKU means the current SKU is the same as SKU
+    inventory_dealer['CURRENT_OBD_SKU'] = inventory_dealer['CURRENT_OBD_SKU'].fillna(inventory_dealer['SKU'])
+
+    inventory_dealer = inventory_dealer.groupby(['CURRENT_OBD_SKU', 'DEALER_CODE','CLOSING_STOCK_DATE'])['CURRENT_AVAILABLE_STOCK'].sum().reset_index()
+    inventory_dealer = inventory_dealer.rename(columns={'CURRENT_OBD_SKU': 'SKU'})
+    return inventory_dealer
+    
+
+    
+
+def aggregateInventory(inventory_dealer, parent_dealer_mapping):
+    logger.info('Aggregating Inventory by Parent Dealer')
+    inventory_dealer = pd.merge(inventory_dealer, parent_dealer_mapping[['DEALER_CODE', 'PARENT_DEALER_CODE']], on="DEALER_CODE", how="inner")
+    aggregated_inventory = inventory_dealer.groupby(['PARENT_DEALER_CODE', 'SKU', 'CLOSING_STOCK_DATE'])['CURRENT_AVAILABLE_STOCK'].sum().reset_index()
+    inventory_dealer = aggregated_inventory[['PARENT_DEALER_CODE', 'SKU', 'CLOSING_STOCK_DATE', 'CURRENT_AVAILABLE_STOCK']]
+    inventory_dealer.columns = ['DEALER', 'SKU', 'CLOSING_STOCK_DATE', 'CURRENT_AVAILABLE_STOCK']
+    logger.info(f'Aggregated Inventory contains {len(inventory_dealer)} rows')
+    return inventory_dealer
+
+def weekly_daily_aggregation(inventory_dealer, cut_off_date):
+    logger.info(f'Performing weekly/daily aggregation with cut off date {cut_off_date}')
+    inventory_dealer = inventory_dealer.loc[pd.to_datetime(inventory_dealer.CLOSING_STOCK_DATE) < cut_off_date]
+    idx = inventory_dealer.groupby(['DEALER', 'SKU'])['CLOSING_STOCK_DATE'].idxmax()
+    latest_inventory = inventory_dealer.loc[idx]
+    latest_inventory = latest_inventory[['DEALER', 'SKU', 'CURRENT_AVAILABLE_STOCK','CLOSING_STOCK_DATE']]
+    latest_inventory.columns = ['DEALER', 'SKU', 'CURRENT_AVAILABLE_STOCK','CLOSING_STOCK_DATE']
+    logger.info(f'Final weekly/daily inventory aggregation contains {len(latest_inventory)} rows')
+    return latest_inventory
+
+
+def getECRDealerSales(config,start_date):
+    logger.info(f'ECR Sales data fetching')
+    customer_type_to_include = config['customer_types']
+    agg_period = config['agg_type']
+    concat_sim_models = config['combine_models']
+    
+    
+    ecr_data = getDailyECR(customer_type_to_include, start_date, config)
+    parent_dealer_mapping = getParentDealerMapping()
+    
+    ecr_sales = pd.merge(ecr_data, parent_dealer_mapping[['DEALER_CODE', 'PARENT_DEALER_CODE']], on="DEALER_CODE", how="inner")
+    
+    if agg_period == "monthly":
+        group_by_cols = ['PARENT_DEALER_CODE', 'SKU',  'CAL_MONTH', 'CAL_YEAR'] if not concat_sim_models else ['PARENT_DEALER_CODE', 'SUB_MODEL', 'FAMILY_CODE', 'CAL_MONTH', 'CAL_YEAR']
+        ecr_dealer_sales = ecr_sales.groupby(group_by_cols)['NET_SALES'].sum().reset_index()
+        ecr_dealer_sales['Date'] = ecr_dealer_sales.apply(lambda row: datetime.datetime(row['CAL_YEAR'], row['CAL_MONTH'], 1), axis=1)
+    else:
+        group_by_cols = ['PARENT_DEALER_CODE', 'SKU', 'CAL_DATE', 'CAL_MONTH', 'CAL_YEAR'] if not concat_sim_models else ['PARENT_DEALER_CODE', 'SUB_MODEL', 'FAMILY_CODE', 'CAL_DATE', 'CAL_MONTH', 'CAL_YEAR']
+        ecr_dealer_sales = ecr_sales.groupby(group_by_cols)['NET_SALES'].sum().reset_index()
+        ecr_dealer_sales['Date'] = pd.to_datetime(ecr_dealer_sales['CAL_DATE'])
+        ecr_dealer_sales['NET_SALES'] = np.where(ecr_dealer_sales.NET_SALES.fillna(0) <= 0, 0, ecr_dealer_sales.NET_SALES)
+    logger.info(f'ECR data fetched and it contains {len(ecr_dealer_sales)} rows')
+    return ecr_dealer_sales
+
+def get_current_week_start_date(current_date):
+    current_day = current_date.day
+    current_month = current_date.month
+    current_year = current_date.year
+    week_number = (current_day - 1) // 7 + 1
+    week_start_day = (week_number - 1) * 7 + 1
+    #print(pd.Timestamp(current_year, current_month, week_start_day))
+    return pd.Timestamp(current_year, current_month, week_start_day)
+
+def calculate_reorder_urgency(final_data, ecr_dealer_sales, current_date,config):
+    logger.info(f'Calculating weekly/daily reorder_urgency scores')
+    current_date = pd.to_datetime(current_date)
+    
+    current_day = current_date.day
+    current_month = current_date.month
+    current_year = current_date.year
+   
+    if current_month == 12:
+        last_day_of_month = pd.Timestamp(current_year, 12, 31)
+    else:
+        last_day_of_month = pd.Timestamp(current_year, current_month + 1, 1) - pd.Timedelta(days=1)
+
+    days_remaining_in_month = (last_day_of_month - current_date).days + 1
+
+    
+    # Helper function to get days in the current week
+    def get_days_in_week(current_day):
+        if current_day <= 21:
+            return 7
+        else:
+            return (last_day_of_month.day - current_day + 1)
+    
+    def get_remaining_days_in_custom_week(current_day, last_day_of_month):
+
+        last_day_of_month_date = last_day_of_month.date()
+   
+        current_day_date = pd.Timestamp(last_day_of_month.year, last_day_of_month.month, current_day).date()
+    
+        
+        if 1 <= current_day <= 7:
+            return 7 - current_day + 1
+        elif 8 <= current_day <= 14:
+        
+            return 14 - current_day + 1
+        elif 15 <= current_day <= 21:
+          
+            return 21 - current_day + 1
+        else:
+            days_remaining = (last_day_of_month_date - current_day_date).days
+            return days_remaining + 1
+  
+    def calculate_slope(sales_list):
+      
+        if isinstance(sales_list, (list, np.ndarray)) and len(sales_list) > 0:
+            if not np.any(np.isnan(sales_list)):
+                if len(sales_list) < 2:
+                    return 0
+                x = np.arange(len(sales_list))
+                slope, _ = np.polyfit(x, sales_list, 1)
+                return slope
+            else:
+                return 0  
+        else:
+            return 0  
+
+
+ 
+    current_week_start_date = get_current_week_start_date(current_date)
+    days_in_week = get_days_in_week(current_day)
+    days_left_in_week = get_remaining_days_in_custom_week(current_day,last_day_of_month)
+    
+    print(days_in_week,"days_in_week")
+    print(days_left_in_week, "days_left_in_week")
+    print(last_day_of_month, "days in the month")
+    
+
+    # Merge final_data with ecr_sales based on DEALER and SKU, and date filters for sales up to the current day or week
+    ecr_dealer_sales['CAL_DATE'] = pd.to_datetime(ecr_dealer_sales['CAL_DATE'])
+    
+    # Weekly sales (before current week start date)
+    weekly_sales = ecr_dealer_sales[ecr_dealer_sales['CAL_DATE'] < current_week_start_date].groupby(['PARENT_DEALER_CODE', 'SKU'])['NET_SALES'].sum().reset_index()
+    weekly_sales.columns = ['DEALER', 'SKU', 'total_sales_upto_previous_week']
+
+    # Daily sales (before the current date)
+    daily_sales = ecr_dealer_sales[ecr_dealer_sales['CAL_DATE'] < current_date].groupby(['PARENT_DEALER_CODE', 'SKU'])['NET_SALES'].sum().reset_index()
+    daily_sales.columns = ['DEALER', 'SKU', 'total_sales_upto_previous_day']
+
+    # Merge the sales data with final_data
+    final_data = final_data.merge(weekly_sales, how='left', on=['DEALER', 'SKU']).fillna(0)
+    final_data = final_data.merge(daily_sales, how='left', on=['DEALER', 'SKU']).fillna(0)
+
+    # # Calculate remaining expected demand
+    final_data['remaining_expected_demand_weekly'] = final_data['PREDICTED_SALES_SKU'].fillna(0) - final_data['total_sales_upto_previous_week'].fillna(0)
+    final_data['remaining_expected_demand_daily'] = final_data['PREDICTED_SALES_SKU'].fillna(0) - final_data['total_sales_upto_previous_day'].fillna(0)
+
+  
+    print(last_day_of_month.day)
+    final_data['PER_DAY_PREDICTED_SALES'] = final_data['PREDICTED_SALES_SKU'].fillna(0)/last_day_of_month.day
+    final_data['SLOPE'] = final_data['LAST_15_SALES'].apply(calculate_slope)
+    final_data['DEMAND_FACTOR_WEEKLY'] = 1 + final_data['LAST_15_SALES'].apply(calculate_slope).divide(
+                                            final_data['PER_DAY_PREDICTED_SALES']).where(final_data['PER_DAY_PREDICTED_SALES'] > 0, 1)
+    
+    
+    final_data['DEMAND_FACTOR_DAILY'] = 1 + final_data['LAST_15_SALES'].apply(calculate_slope).divide(
+                                            final_data['PER_DAY_PREDICTED_SALES'].fillna(0)).where(final_data['PER_DAY_PREDICTED_SALES'].fillna(0) > 0, 1)
+
+    final_data['expected_demand_in_day'] =  final_data['DEMAND_FACTOR_DAILY'].fillna(0) * final_data['PER_DAY_PREDICTED_SALES'].fillna(0)* days_left_in_week
+    final_data['expected_demand_per_day'] =  final_data['DEMAND_FACTOR_DAILY'].fillna(0) * final_data['PER_DAY_PREDICTED_SALES'].fillna(0) 
+    final_data['expected_demand_in_week'] =  final_data['expected_demand_in_day'].fillna(0)  * min(days_in_week,7)
+    
+    # final_data['remaining_expected_demand_weekly'] = final_data['expected_demand_in_day'] * max(days_in_week,7)
+    # final_data['remaining_expected_demand_weekly'] = final_data['expected_demand_in_day'] * max(days_in_week,7)
+
+    # Available stock after accounting for expected demand
+    final_data['available_stock_weekly'] = final_data['CURRENT_WEEK_AVAILABLE_STOCK'].fillna(0) - final_data['expected_demand_in_week'].fillna(0)
+    final_data['available_stock_daily'] = final_data['CURRENT_AVAILABLE_STOCK'].fillna(0) - final_data['expected_demand_in_day'].fillna(0)
+
+    # Reorder urgency score calculation
+    aplha =1
+    final_data['Weekly_Reorder_level_urgency'] = np.where( final_data.SALES_PROPORTION.fillna(0) <=0,0,
+                                                    (np.exp((final_data.REORDER_LEVEL.fillna(0) - final_data.available_stock_weekly.fillna(0) )
+                                                  / (final_data.REORDER_LEVEL.fillna(0) + 1)) * (1 + (aplha * final_data.SALES_PROPORTION.fillna(0)) )))    
+    final_data['Daily_Reorder_level_urgency'] = np.where(final_data.SALES_PROPORTION.fillna(0) <=0,0,
+                                                    (np.exp((final_data.REORDER_LEVEL.fillna(0)- final_data.available_stock_daily.fillna(0) )
+                                                  / (final_data.REORDER_LEVEL.fillna(0) + 1)) * (1 + (aplha * final_data.SALES_PROPORTION.fillna(0)) )))  
+    
+    
+    final_data['Weekly_Reorder_level_urgency'] = final_data['Weekly_Reorder_level_urgency'].fillna(0)
+    final_data['Daily_Reorder_level_urgency'] = final_data['Daily_Reorder_level_urgency'].fillna(0)
+   
+    weekly=final_data.drop(['CLOSING_STOCK_DATE','CURRENT_AVAILABLE_STOCK','Daily_Reorder_level_urgency','available_stock_daily','expected_demand_in_day','remaining_expected_demand_daily'],axis=1)
+    daily = final_data.drop(['CLOSING_WEEK_STOCK_DATE','CURRENT_WEEK_AVAILABLE_STOCK','Weekly_Reorder_level_urgency','available_stock_weekly','expected_demand_in_week','remaining_expected_demand_weekly'],axis=1)
+
+    weekly['WEEK_TILL_DATE']=current_week_start_date
+    daily['TILL_DATE'] = current_date - timedelta(-1)
+    
+    logger.info(f'Successfully calculated weekly/daily reorder_urgency scores: Weekly table no of rows: {len(weekly)} Daily table no of rows: {len(daily)}')
+    
+    
+    return weekly,daily
+
+    
+
+def rank_with_fallback(df, urgency_col, quantity_col):
+    # Separate positive and non-positive quantity values
+    positive_df = df[df[quantity_col] > 0].copy()
+    non_positive_df = df[df[quantity_col] <= 0].copy()
+
+    # Rank the positive quantity values first
+    positive_df = positive_df.sort_values(by=[urgency_col, quantity_col], ascending=[False, False])
+    positive_df['URGENCY_RANK'] = range(1, len(positive_df) + 1)
+
+    # Rank the non-positive quantity values next
+    non_positive_df = non_positive_df.sort_values(by=[urgency_col], ascending=[False])
+    non_positive_df['URGENCY_RANK'] = range(len(positive_df) + 1, len(positive_df) + len(non_positive_df) + 1)
+
+    # Combine both dataframes
+    ranked_df = pd.concat([positive_df, non_positive_df])
+
+    return ranked_df
+
+
+# def LeadTimeSafetyStockDays():
+#     query = f"""SELECT DISTINCT  PARENT_DEALER_CODE AS DEALER,SKU,PREDICTED_SALES_SKU,
+#         SAFETY_STOCK, SAFETY_STOCK_DAYS
+#         FROM MOP_DATABASE.SOQ.SOQ_DATA_FINAL_VERSION 
+#         where 
+#         STOCK_DATE_PERIOD='mid' 
+#         AND PLANNING_MONTH='2025-02-01' 
+#         AND DEMAND_VARIABILITY_TYPE='SKU_BASED'  
+#         AND SERVICE_LEVEL=90"""
+
+#     now = datetime.now()
+#     next_month = now.replace(day=28) + timedelta(days=4)  # Guarantees we move to the next month
+#     last_day = next_month.replace(day=1) - timedelta(days=1)
+#     predicted_sales = session.sql(query).to_pandas()
+#     Transit_time=fetchTransitTime()
+#     predicted_sales=pd.merge(predicted_sales,Transit_time, on =['DEALER','SKU'], how='left')
+#     predicted_sales['AVG_LEAD_TIME_STOCK'] = np.ceil((predicted_sales.PREDICTED_SALES_SKU/last_day.day) * predicted_sales.TRANSIT_TIME) 
+#     predicted_sales['REORDER_LEVEL'] = predicted_sales.SAFETY_STOCK + predicted_sales.AVG_LEAD_TIME_STOCK
+#     logger.info(f'Retrieved {predicted_sales.shape[0]} rows of Predicted Sales data')
+#     return predicted_sales
+
+
+
+def load_data(config, start_date):
+    """Load all necessary data from the configuration and start date."""
+    # ecr_dealer_sales = getECRDealerSales(config, start_date)
+    parent_dealer_mapping = getParentDealerMapping()
+    mop_data = fetchMOPData(config, parent_dealer_mapping)
+    predicted_sales = fetchPredictedSales(config, "False")
+    dealer_inventory = fetchDealerInventory(config)
+    dispatch_data = fetchDispatchData(config, parent_dealer_mapping)
+    today_dispatch_data= fetchTodayDispatchData(config, parent_dealer_mapping)
+    
+    return  parent_dealer_mapping, mop_data, predicted_sales, dealer_inventory, dispatch_data,today_dispatch_data
+
+def preprocess_inventory(dealer_inventory, parent_dealer_mapping, current_date):
+    """Preprocess inventory data for weekly and daily aggregation."""
+    aggregated_inventory = aggregateInventory(dealer_inventory, parent_dealer_mapping)
+    current_week_start_date = get_current_week_start_date(current_date)
+    current_week_start_inventory = weekly_daily_aggregation(aggregated_inventory, current_week_start_date)
+    current_available_inventory = weekly_daily_aggregation(aggregated_inventory, current_date)
+    return current_week_start_inventory, current_available_inventory, current_week_start_date
+
+def merge_inventory_with_sales(predicted_sales, current_week_start_inventory, current_available_inventory, current_week_start_date, current_date,today_dispatch_data):
+    """Merge inventory data with predicted sales."""
+    final_data = pd.merge(predicted_sales, current_week_start_inventory, on=['DEALER', 'SKU'], how='left')
+    final_data['CURRENT_WEEK_AVAILABLE_STOCK'] = final_data.CURRENT_AVAILABLE_STOCK.fillna(0)
+    final_data.drop(['CURRENT_AVAILABLE_STOCK'], axis=1, inplace=True)
+    final_data['CLOSING_WEEK_STOCK_DATE'] = final_data.CLOSING_STOCK_DATE.fillna(current_week_start_date)
+    final_data.drop(['CLOSING_STOCK_DATE'], axis=1, inplace=True)
+
+    final_data = final_data.merge(current_available_inventory, on=['DEALER', 'SKU'], how='left')
+    final_data =  final_data.merge(today_dispatch_data, on=['DEALER', 'SKU'], how='left' )
+    final_data['QUANTITY_DISPATCHED_TODAY'] = final_data.QUANTITY_DISPATCHED_TODAY.fillna(0)
+    final_data['CURRENT_AVAILABLE_STOCK'] = final_data.CURRENT_AVAILABLE_STOCK.fillna(0) + final_data.QUANTITY_DISPATCHED_TODAY.fillna(0)
+    final_data['CLOSING_STOCK_DATE'] = final_data.CLOSING_STOCK_DATE.fillna(current_date)
+    return final_data
+
+
+def process_ecr_sales(ecr_sales_since_2021, current_date):
+   
+    # Add DEALSKU and ensure CAL_DATE is datetime
+    # obd_data=fetchOBDData(session)
+   
+    # ecr_sales_since_2021=pd.merge(ecr_sales_since_2021,obd_data,on="SKU",how="left")
+   
+    #     ## Null in Current ObD SKU - means, current SKU is the same as sku
+   
+    # ecr_sales_since_2021['CURRENT_OBD_SKU'] = ecr_sales_since_2021['CURRENT_OBD_SKU'].fillna(ecr_sales_since_2021['SKU'])
+   
+    # ecr_sales_since_2021=ecr_sales_since_2021.drop(['SKU'],axis=1)
+    # ecr_sales_since_2021=ecr_sales_since_2021.rename(columns={'CURRENT_OBD_SKU':'SKU'})
+    
+    ecr_sales_since_2021['DEALSKU'] = ecr_sales_since_2021.PARENT_DEALER_CODE.astype(str) + ecr_sales_since_2021.SKU.astype(str)
+    ecr_sales_since_2021['CAL_DATE'] = pd.to_datetime(ecr_sales_since_2021['CAL_DATE'])
+    
+    # Filter sales data for the last 90 days
+    dealer_total_sales = ecr_sales_since_2021.loc[
+        ecr_sales_since_2021.CAL_DATE >= current_date - pd.Timedelta(days=90)
+    ].copy()
+
+    
+    # Group by dealer to calculate total sales
+    dealer_total_sales = ecr_sales_since_2021.groupby('PARENT_DEALER_CODE')['NET_SALES'].sum().reset_index()
+    dealer_total_sales = dealer_total_sales.rename(columns={'NET_SALES': 'TOTAL_NET_SALES'})
+    
+    # Merge to calculate sales proportions
+    ecr_sales_with_total = pd.merge(ecr_sales_since_2021, dealer_total_sales, on='PARENT_DEALER_CODE')
+    ecr_sales_with_total['sales_proportion'] = np.where(ecr_sales_with_total['TOTAL_NET_SALES'].fillna(0)==0, 0, ecr_sales_with_total['NET_SALES'].fillna(0) / ecr_sales_with_total['TOTAL_NET_SALES'].fillna(0))
+    
+    # Aggregate last 3 years' sales and sales proportions
+    last_3year_sales = ecr_sales_with_total.groupby(['PARENT_DEALER_CODE', 'SKU'])[
+        ['NET_SALES', 'sales_proportion']
+    ].sum().reset_index()
+    
+    # Rename columns
+    last_3year_sales.columns = ['DEALER', 'SKU', 'LAST_3_YEAR_NET_SALES', 'LAST_3_MONTHS_SALES_PROPORTION']
+    
+    return last_3year_sales
+
+# def process_last_10_days_sales(ecr_sales_since_2021, current_date):
+
+#     # Filter sales data for the last 10 days
+#     dealer_total_sales_10 = ecr_sales_since_2021.loc[
+#         ecr_sales_since_2021.CAL_DATE >= current_date - pd.Timedelta(days=15)
+#     ].copy()
+
+#     # Group by dealer and SKU to get sales as a list
+#     dealer_total_sales_10 = dealer_total_sales_10.groupby(['PARENT_DEALER_CODE', 'SKU'])['NET_SALES'].apply(
+#         lambda x: list(x.fillna(0))
+#     ).reset_index()
+    
+#     # Rename columns
+#     dealer_total_sales_10.columns = ['DEALER', 'SKU', 'LAST_10_SALES']
+
+#     return dealer_total_sales_10
+
+
+
+
+def process_last_15_days_sales(ecr_sales_since_2021, current_date):
+    dealer_total_sales_15 = ecr_sales_since_2021.loc[
+        ecr_sales_since_2021.CAL_DATE >= current_date - pd.Timedelta(days=15)].copy()
+    last_15_days = pd.date_range(end=dealer_total_sales_15['CAL_DATE'].max(), periods=15, freq='D')
+    dealer_total_sales_15['CAL_DATE'] = pd.to_datetime(dealer_total_sales_15['CAL_DATE'])
+    # Fill missing dates with 0 sales for each Dealer-SKU pair
+    full_sales = (dealer_total_sales_15
+                  .groupby(['PARENT_DEALER_CODE', 'SKU'])
+                  .apply(lambda x: x.set_index('CAL_DATE')
+                                    .reindex(last_15_days, fill_value=0)['NET_SALES']
+                                    .tolist())
+                  .reset_index())
+    # Rename columns
+    full_sales.columns = ['DEALER', 'SKU', 'LAST_15_SALES']
+
+    return full_sales
+
+def process_ecr_3_month_sales(ecr_sales_since_2021, current_date):
+
+    import pandas as pd
+    import numpy as np
+
+    ecr_sales_since_2021 = ecr_sales_since_2021.copy()
+
+    ecr_sales_since_2021['CAL_DATE'] = pd.to_datetime(ecr_sales_since_2021['CAL_DATE'])
+
+    # ----------------------------
+    # Filter last 90 days
+    # ----------------------------
+    dealer_sales = ecr_sales_since_2021.loc[
+        ecr_sales_since_2021['CAL_DATE'] >= current_date - pd.Timedelta(days=90)
+    ]
+
+    # ----------------------------
+    # Dealer total sales
+    # ----------------------------
+    dealer_total_sales = (
+        dealer_sales
+        .groupby('PARENT_DEALER_CODE', as_index=False)['NET_SALES']
+        .sum()
+        .rename(columns={'NET_SALES': 'TOTAL_NET_SALES'})
+    )
+
+    # ----------------------------
+    # Merge totals
+    # ----------------------------
+    dealer_sales = dealer_sales.merge(
+        dealer_total_sales,
+        on='PARENT_DEALER_CODE',
+        how='left'
+    )
+
+    dealer_sales['sales_proportion'] = np.where(
+        dealer_sales['TOTAL_NET_SALES'] == 0,
+        0,
+        dealer_sales['NET_SALES'] / dealer_sales['TOTAL_NET_SALES']
+    )
+
+    # ----------------------------
+    # Aggregate at Dealer–SKU level
+    # ----------------------------
+    last_3_month_sales = (
+        dealer_sales
+        .groupby(['PARENT_DEALER_CODE', 'SKU'], as_index=False)
+        .agg(
+            LAST_3_MONTH_NET_SALES=('NET_SALES', 'sum'),
+            SALES_PROPORTION=('sales_proportion', 'sum')
+        )
+    )
+
+    last_3_month_sales = last_3_month_sales.rename(
+        columns={'PARENT_DEALER_CODE': 'DEALER'}
+    )
+
+    # ----------------------------
+    # Sort & cumulative proportion at Dealer level
+    # ----------------------------
+    last_3_month_sales = (
+        last_3_month_sales
+        .sort_values(['DEALER', 'LAST_3_MONTH_NET_SALES'], ascending=[True, False])
+    )
+
+    last_3_month_sales['CUMULATIVE_PROPORTION'] = (
+        last_3_month_sales
+        .groupby('DEALER')['SALES_PROPORTION']
+        .cumsum()
+    )
+
+    # ----------------------------
+    # Classification logic
+    # ----------------------------
+    def classify_sku(group):
+        group = group.copy()
+
+        # Default classification
+        group['SKU_CATEGORY'] = np.where(
+            group['CUMULATIVE_PROPORTION'] <= 0.80, 'RUNNER',
+            np.where(group['CUMULATIVE_PROPORTION'] <= 0.90, 'REPEATER', 'STRANGER')
+        )
+
+        # Business override:
+        # Ensure at least one RUNNER and one REPEATER if first SKUs cross 90%
+        if len(group) >= 1:
+            group.iloc[0, group.columns.get_loc('SKU_CATEGORY')] = 'RUNNER'
+
+        if len(group) >= 2 and group.iloc[1]['CUMULATIVE_PROPORTION'] > 0.80:
+            group.iloc[1, group.columns.get_loc('SKU_CATEGORY')] = 'REPEATER'
+
+        return group
+
+    last_3_month_sales = (
+        last_3_month_sales
+        .groupby('DEALER', group_keys=False)
+        .apply(classify_sku)
+    )
+
+    return last_3_month_sales
+
+
+def main():
+    
+    # Load configuration
+    #config = load_config()
+    current_date = pd.Timestamp.now()
+    weekly_table = config['database']['Weekly_table']
+    daily_table =  config['database']['Daily_table']
+    Unconstrained_table =  config['database']['Unconstrained_table']
+    ZeroB2G_table =   config['database']["ZeroB2G_table"]
+    DailyDispatchTable = config['database']["DailyDispatchTable"]
+    DailyLeadTimeTable =  config['database']['DailyLeadTimeTable']
+    runner_skus_table =  config['database']['runner_skus_table']
+    # Fetch data based on the config
+    start_date = config['start_date']
+ 
+    parent_dealer_mapping, mop_data, predicted_sales, dealer_inventory, dispatch_data, today_dispatch_data = load_data(config, start_date)
+    
+    predicted_sales = pd.merge(mop_data[['DEALER','SKU','PLANT']].copy(),predicted_sales, on =['DEALER','SKU','PLANT'], how='left')
+    
+    #predicted_sales.loc[(predicted_sales.DEALER=='10258') & (predicted_sales.SKU=='HPLNPDRLMFIMVG')]
+    current_week_start_inventory, current_available_inventory, current_week_start_date = preprocess_inventory(dealer_inventory, parent_dealer_mapping, current_date)    
+   
+    print(predicted_sales.shape, "before merging with daily & week starte date Inventory")
+
+    final_data = merge_inventory_with_sales(predicted_sales, current_week_start_inventory, current_available_inventory, current_week_start_date, current_date,today_dispatch_data)
+    
+    print(final_data.shape, "after merging  with daily & week start date Inventory")
+    open_orders = open_order_block(session)
+    
+    start_date = '2023-05-01'
+    ecr_sales_since_2021 = getECRDealerSales(config, start_date)
+    
+    # Process ECR sales
+    last_3year_sales = process_ecr_sales(ecr_sales_since_2021, current_date)
+    
+    # Merge with final data
+    final_data = pd.merge(final_data, last_3year_sales, on=['DEALER', 'SKU'], how='left')
+    #final_data.loc[(final_data.DEALER=='11845') & (final_data.SKU == 'HSPPPDRSCFIBKG'),:]
+    print(final_data.shape,"after merging  with sales data for last 3 year sales ")
+
+    last_10_sales = process_last_15_days_sales(ecr_sales_since_2021, current_date)
+
+    # Merge with final data
+    final_data = pd.merge(final_data, last_10_sales, on=['DEALER', 'SKU'], how='left')
+    print(final_data.shape,"after merging  with sales data for last 10 day sales ")
+        
+    final_data['SALES_PROPORTION']=final_data.LAST_3_MONTHS_SALES_PROPORTION.fillna(0)
+
+    aplha =1
+    
+    final_data['REORDER_URGENCY_SCORE'] = np.where(final_data.SALES_PROPORTION.fillna(0)==0,0,(np.exp((final_data.REORDER_LEVEL.fillna(0)-final_data.CURRENT_AVAILABLE_STOCK.fillna(0))
+                                                  / (final_data.REORDER_LEVEL.fillna(0) + 1)) * (1 + (aplha * final_data.SALES_PROPORTION.fillna(0) ))))
+    
+    #final_data.loc[(final_data.DEALER=='11845') & (final_data.SKU == 'HSPPPDRSCFIBKG'),:]
+    weekly,daily = calculate_reorder_urgency(final_data, ecr_sales_since_2021, current_date,config)
+    
+    MOP_Weekly=pd.merge(mop_data[['DEALER','SKU','PLANT','QUANTITY','VERSION','MODEL']],weekly, on =['DEALER','SKU','PLANT'], how ='left')
+    MOP_Weekly=pd.merge(MOP_Weekly,dispatch_data, on =['DEALER','SKU','PLANT'], how ='left')
+    MOP_Weekly['B2G'] = MOP_Weekly.QUANTITY - MOP_Weekly.QUANTITY_DISPATCHED.fillna(0)
+    
+    MOP_Daily=pd.merge(mop_data[['DEALER','SKU','PLANT','QUANTITY','VERSION','MODEL']],daily, on =['DEALER','SKU','PLANT'], how ='left')
+    
+    MOP_Daily=pd.merge(MOP_Daily,dispatch_data, on =['DEALER','SKU','PLANT'], how ='left')
+    MOP_Daily = pd.merge(MOP_Daily, open_orders, on =['PLANT','DEALER','SKU'], how='left') 
+    MOP_Daily['B2G'] = MOP_Daily.QUANTITY - MOP_Daily.QUANTITY_DISPATCHED.fillna(0) - MOP_Daily.TOTAL_OPEN_ORDER_QTY.fillna(0)
+    
+
+    
+    MOP_Weekly['RUN_DATE'] = pd.Timestamp.now().date()
+    MOP_Daily['RUN_DATE']  = pd.Timestamp.now().date()
+
+    MOP_Weekly['WEEK_START_DATE']=current_week_start_date
+    MOP_Daily['CURRENT_DATE'] = MOP_Daily['RUN_DATE']
+ 
+    MOP_Weekly = rank_with_fallback(MOP_Weekly, 'Weekly_Reorder_level_urgency', 'B2G')
+    MOP_Daily = rank_with_fallback(MOP_Daily, 'Daily_Reorder_level_urgency', 'B2G')   
+
+    current_year = current_date.year
+    current_month = current_date.month
+
+    # Filter for sales data for the current month
+    ecr_sales_last_7_days = ecr_sales_since_2021.loc[ecr_sales_since_2021.CAL_DATE >= current_date - pd.Timedelta(days=15),: ].copy()
+    ecr_sales_last_7_days = ecr_sales_last_7_days.groupby(['PARENT_DEALER_CODE', 'SKU'])['NET_SALES'].sum().reset_index()
+    ecr_sales_last_7_days.columns = ['DEALER','SKU','LAST_N_DAY_SALES']
+    ecr_sales_last_7_days.LAST_N_DAY_SALES = np.where(ecr_sales_last_7_days.LAST_N_DAY_SALES.fillna(0) <= 0 , 0,ecr_sales_last_7_days.LAST_N_DAY_SALES.fillna(0) )
+
+    ecr_sales_current_month = ecr_sales_since_2021.loc[
+        (ecr_sales_since_2021['CAL_DATE'].dt.year == current_year) &
+        (ecr_sales_since_2021['CAL_DATE'].dt.month == current_month), :].copy()
+    ecr_sales_current_month = ecr_sales_current_month.groupby(['PARENT_DEALER_CODE', 'SKU'])['NET_SALES'].sum().reset_index()
+    ecr_sales_current_month.columns = ['DEALER','SKU','CURRENT_MONTH_SALES']
+    ecr_sales_current_month.CURRENT_MONTH_SALES = np.where(ecr_sales_current_month.CURRENT_MONTH_SALES <= 0 , 0,ecr_sales_current_month.CURRENT_MONTH_SALES )
+
+    MOP_Weekly = pd.merge(MOP_Weekly,ecr_sales_last_7_days, on =['DEALER','SKU'], how='left')
+    MOP_Daily = pd.merge(MOP_Daily,ecr_sales_last_7_days, on =['DEALER','SKU'], how='left')
+    MOP_Weekly.LAST_N_DAY_SALES.fillna(0,inplace=True)
+    MOP_Daily.LAST_N_DAY_SALES.fillna(0,inplace=True)
+
+    MOP_Weekly = pd.merge(MOP_Weekly,ecr_sales_current_month, on =['DEALER','SKU'], how='left')
+    MOP_Daily = pd.merge(MOP_Daily,ecr_sales_current_month, on =['DEALER','SKU'], how='left')
+    MOP_Weekly.CURRENT_MONTH_SALES.fillna(0,inplace=True)
+    MOP_Daily.CURRENT_MONTH_SALES.fillna(0,inplace=True)
+    
+    MOP_Weekly['DEALSKU'] = MOP_Weekly.DEALER.astype(str) + MOP_Weekly.SKU.astype(str)
+    MOP_Weekly['SALES_PRESENCE_FLAG'] = np.where(MOP_Weekly.DEALSKU.isin(ecr_sales_since_2021.DEALSKU),1,0)
+    
+    MOP_Daily['DEALSKU'] = MOP_Daily.DEALER.astype(str) + MOP_Daily.SKU.astype(str)
+    MOP_Daily['SALES_PRESENCE_FLAG'] = np.where(MOP_Daily.DEALSKU.isin(ecr_sales_since_2021.DEALSKU),1,0)
+
+    MOP_Daily['SAFETY_STOCK'] =  np.minimum(MOP_Daily['SAFETY_STOCK'].fillna(0),(MOP_Daily['PREDICTED_SALES_SKU'].fillna(0) * 3))
+                        
+    
+    MOP_Weekly= MOP_Weekly[["RUN_DATE","DEALER","SKU",'PLANT',"QUANTITY","MODEL","VERSION","PREDICTED_SALES_SKU","AVG_LEAD_TIME_STOCK","SAFETY_STOCK",
+                            "REORDER_LEVEL","CURRENT_WEEK_AVAILABLE_STOCK","REORDER_URGENCY_SCORE", "WEEK_TILL_DATE",
+                            "total_sales_upto_previous_week","total_sales_upto_previous_day","PER_DAY_PREDICTED_SALES", "DEMAND_FACTOR_WEEKLY",
+                            "expected_demand_in_week","available_stock_weekly","Weekly_Reorder_level_urgency" ,"SALES_PRESENCE_FLAG","WEEK_START_DATE","SALES_PROPORTION","CURRENT_MONTH_SALES","LAST_N_DAY_SALES",
+                            "QUANTITY_DISPATCHED","B2G","URGENCY_RANK"]]
+    MOP_Daily = MOP_Daily[["RUN_DATE","DEALER","SKU",'PLANT',"QUANTITY","MODEL","VERSION","PREDICTED_SALES_SKU","AVG_LEAD_TIME_STOCK","SAFETY_STOCK",
+                            "REORDER_LEVEL","CURRENT_AVAILABLE_STOCK", "REORDER_URGENCY_SCORE", "TILL_DATE",
+                            "total_sales_upto_previous_week","total_sales_upto_previous_day","PER_DAY_PREDICTED_SALES",  "SLOPE" , 'DEMAND_FACTOR_DAILY',
+                            "expected_demand_per_day","expected_demand_in_day","available_stock_daily","Daily_Reorder_level_urgency", "SALES_PRESENCE_FLAG","SALES_PROPORTION","CURRENT_MONTH_SALES","LAST_N_DAY_SALES",
+                            "QUANTITY_DISPATCHED","TOTAL_OPEN_ORDER_QTY","B2G","URGENCY_RANK","QUANTITY_DISPATCHED_TODAY"]]
+    
+    MOP_Weekly[["REORDER_URGENCY_SCORE", "total_sales_upto_previous_week",
+                "total_sales_upto_previous_day","PER_DAY_PREDICTED_SALES",
+                "expected_demand_in_week","available_stock_weekly",
+                "Weekly_Reorder_level_urgency"]]= MOP_Weekly[["REORDER_URGENCY_SCORE", "total_sales_upto_previous_week","total_sales_upto_previous_day",
+                                                              "PER_DAY_PREDICTED_SALES","expected_demand_in_week","available_stock_weekly",
+                                                              "Weekly_Reorder_level_urgency"]].apply(lambda x: round(x,3))
+
+    MOP_Daily[["REORDER_URGENCY_SCORE", "total_sales_upto_previous_week",
+               "total_sales_upto_previous_day","PER_DAY_PREDICTED_SALES",
+              "expected_demand_in_day","available_stock_daily",
+               "Daily_Reorder_level_urgency","expected_demand_per_day","SLOPE"]] = MOP_Daily[["REORDER_URGENCY_SCORE", "total_sales_upto_previous_week",
+                                                            "total_sales_upto_previous_day","PER_DAY_PREDICTED_SALES",
+                                                            "expected_demand_in_day","available_stock_daily",
+                                                            "Daily_Reorder_level_urgency","expected_demand_per_day","SLOPE"]].apply(lambda x: round(x,3))
+
+    
+    MOP_Daily.QUANTITY_DISPATCHED.fillna(0,inplace=True)
+    MOP_Daily.TOTAL_OPEN_ORDER_QTY.fillna(0,inplace=True)
+    
+    # MOP_Daily.B2G =  np.where(MOP_Daily.B2G < 0, 0, MOP_Daily.B2G)
+    # MOP_Weekly.B2G =  np.where(MOP_Weekly.B2G < 0, 0, MOP_Daily.B2G)
+    MOP_Daily.QUANTITY_DISPATCHED_TODAY.fillna(0)
+   
+    MOP_Daily['RUN_CYCLE_ID'] = cycle_id
+    MOP_Daily['RUN_CYCLE_TIME'] = current_time
+    MOP_Daily['QUANTITY_DISPATCHED_AS_OF_TODAY'] = MOP_Daily.QUANTITY_DISPATCHED_TODAY.fillna(0)
+    
+    #MOP_Daily.drop('QUANTITY_DISPATCHED_TODAY',axis=1,inplace=True)
+    
+
+    MOP_Weekly['RUN_CYCLE_ID'] = cycle_id
+    MOP_Weekly['RUN_CYCLE_TIME'] = current_time
+    
+    # MOP_Daily.B2G =  np.where(MOP_Daily.B2G < 0, 0, MOP_Daily.B2G)
+    # MOP_Weekly.B2G =  np.where(MOP_Weekly.B2G < 0, 0, MOP_Daily.B2G)
+    
+    dispatch_data['RUN_DATE'] = pd.Timestamp.now().date()
+    dispatch_data['RUN_CYCLE_ID'] = cycle_id
+    dispatch_data['RUN_CYCLE_TIME'] = current_time
+    
+    Unconstrained_file = MOP_Daily[['RUN_DATE','RUN_CYCLE_ID', 'RUN_CYCLE_TIME','DEALER','SKU','PLANT','QUANTITY','QUANTITY_DISPATCHED','QUANTITY_DISPATCHED_TODAY','TOTAL_OPEN_ORDER_QTY','B2G']].fillna(0).groupby(['RUN_DATE','RUN_CYCLE_ID', 'RUN_CYCLE_TIME','DEALER','SKU','PLANT'])[['QUANTITY','QUANTITY_DISPATCHED','QUANTITY_DISPATCHED_TODAY','TOTAL_OPEN_ORDER_QTY','B2G']].sum().reset_index()
+    MOP_Daily.drop('QUANTITY_DISPATCHED_TODAY',axis=1,inplace=True)
+    Unconstrained_file.columns = ['RUN_DATE', 'RUN_CYCLE_ID', 'RUN_CYCLE_TIME','DEALER', 'SKU','PLANT', 'MOP_QUANTITY', 'QUANTITY_DISPATCHED', 'QUANTITY_DISPATCHED_TODAY','TOTAL_OPEN_ORDER_QTY', 'B2G']
+    dispatch_data['IS_PART_OF_PLAN'] = np.where((dispatch_data.PLANT.astype(str) + dispatch_data.DEALER.astype(str) + dispatch_data.SKU.astype(str)).isin(MOP_Daily.PLANT.astype(str) + MOP_Daily.DEALER.astype(str) + MOP_Daily.SKU.astype(str)),1,0)
+    
+    # LeadTimetable=LeadTimeSafetyStockDays()
+    
+    LeadTimeTable=pd.merge(mop_data[['DEALER','SKU','PLANT']],predicted_sales[[ 'DEALER',	'SKU'	,'PLANT',	'PREDICTED_SALES_SKU',	'SAFETY_STOCK',	'TRANSIT_TIME',	'AVG_LEAD_TIME_STOCK',	'REORDER_LEVEL','SAFETY_STOCK_DAYS']], on=['DEALER','SKU','PLANT'], how='left')
+    
+    
+
+    LeadTimeTable['RUN_DATE'] = pd.Timestamp.now().date() 
+    LeadTimeTable['RUN_CYCLE_ID'] = cycle_id
+    LeadTimeTable['RUN_CYCLE_TIME'] = current_time
+    LeadTimeTable = LeadTimeTable[[  'DEALER',	'SKU'	,'PLANT',	'PREDICTED_SALES_SKU',	'SAFETY_STOCK',	'TRANSIT_TIME',	'AVG_LEAD_TIME_STOCK',	'REORDER_LEVEL',	'RUN_DATE',	'RUN_CYCLE_ID',	'RUN_CYCLE_TIME',	'SAFETY_STOCK_DAYS']].copy()
+
+    Runner_skus=process_ecr_3_month_sales(ecr_sales_since_2021, current_date)
+
+    Runner_skus['RUN_DATE'] = pd.Timestamp.now().date() 
+    Runner_skus['RUN_CYCLE_ID'] = cycle_id
+    Runner_skus['RUN_CYCLE_TIME'] = current_time
+    
+    delete_insert(DailyLeadTimeTable,cycle_id,current_date=pd.Timestamp.now().date())
+    delete_insert(DailyDispatchTable,cycle_id,current_date=pd.Timestamp.now().date())
+    delete_insert(weekly_table,cycle_id, current_date=pd.Timestamp.now().date())
+    delete_insert(daily_table,cycle_id,current_date=pd.Timestamp.now().date())
+    delete_insert(Unconstrained_table,cycle_id, current_date=pd.Timestamp.now().date())
+    delete_insert(ZeroB2G_table,cycle_id,current_date=pd.Timestamp.now().date())
+    delete_insert( runner_skus_table,cycle_id,current_date=pd.Timestamp.now().date())
+
+# weekly_table = config['database']['Weekly_table']
+# daily_table =  config['database']['Daily_table']
+# Unconstrained_table =  config['database']['Unconstrained_table']
+# ZeroB2G_table =   config['database']["ZeroB2G_table"]
+
+    # drop_table(DailyDispatchTable)
+    # drop_table(weekly_table)
+    # drop_table(daily_table)
+    # drop_table(Unconstrained_table)
+    # drop_table(ZeroB2G_table)
+
+        
+    
+    write_to_snowflake(LeadTimeTable ,DailyLeadTimeTable)
+    if Unconstrained_file.loc[Unconstrained_file.B2G <= 0,:].shape[0] > 0 :
+        write_to_snowflake(Unconstrained_file.loc[Unconstrained_file.B2G <= 0,:].drop(['QUANTITY_DISPATCHED_TODAY','PLANT'],axis=1) ,ZeroB2G_table)
+
+    #Unconstrained_file=Unconstrained_file.loc[Unconstrained_file.B2G > 0,:].copy()
+    write_to_snowflake(Runner_skus,runner_skus_table)
+    write_to_snowflake(MOP_Weekly,weekly_table)
+    write_to_snowflake(MOP_Daily,daily_table)
+    write_to_snowflake(Unconstrained_file,Unconstrained_table)
+    if dispatch_data.shape[0] > 0 :
+        write_to_snowflake(dispatch_data,DailyDispatchTable)
+   
+    return MOP_Weekly, MOP_Daily,dispatch_data, Unconstrained_file,LeadTimeTable,Runner_skus
+    #return final_data
+    
+if __name__ == "__main__":
+    MOP_Weekly, MOP_Daily,dispatch_data,Unconstrained_file,LeadTimeTable,Runner_skus = main()
+    #final_data = main()
+
+time.sleep(20)

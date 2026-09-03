@@ -1,0 +1,480 @@
+# #################################### STEP4 ##################################################
+import streamlit as st
+import pandas as pd
+import datetime
+from datetime import datetime
+import numpy as np
+from snowflake.snowpark.context import get_active_session
+import re
+import yaml
+import logging
+import os
+import time
+
+
+pd.options.mode.chained_assignment = None
+
+# Complete trucks should be flagged - DOne
+# Initialize logger
+
+# For Min qty rows filled, max_row_filled_no, total_QTY , no of trucks  - done
+
+# Get the key_identifier created - done
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+session = get_active_session()
+
+config={
+    
+    "AllProcessedTrucksMinQty":"MOP_DATABASE.DISPATCH_AUTOMATION_OBL.AllProcessedTrucksMinQty",
+    "UnderOrderInstances" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.UnderOrderInstances",
+    "DailyMinQtyTrucks":"MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyMinQtyTrucks",
+    "FundBlockedPostMinTrucks":"MOP_DATABASE.DISPATCH_AUTOMATION_OBL.FundBlockedPostMinTrucks"
+}
+
+def get_run_cycle():
+    # Get the current time
+    current_time = datetime.now().time()
+    # Define time ranges
+    if current_time >= datetime.strptime("00:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("11:00:00", "%H:%M:%S").time():
+        return 1,current_time
+    elif current_time >= datetime.strptime("11:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("14:00:00", "%H:%M:%S").time():
+        return 2,current_time
+    elif current_time >= datetime.strptime("14:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("16:00:00", "%H:%M:%S").time():
+        return 3,current_time
+    elif current_time >= datetime.strptime("16:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("18:00:00", "%H:%M:%S").time():
+        return 4,current_time
+    else:
+        return 5,current_time
+        
+# Example usage
+cycle_id,current_time = get_run_cycle()
+print(f"Current run cycle: {cycle_id}")
+
+
+
+def fetch_data(query, session):
+    """
+    Fetch data from the database using a SQL query.
+    :param query: SQL query to execute
+    :param session: Active database session
+    :return: DataFrame with fetched data
+    """
+    return session.sql(query).to_pandas()
+
+def drop_table(table_name):
+    query = f'DROP TABLE IF EXISTS {table_name};'
+    logger.info(f'Dropping table: {table_name}')
+    session.sql(query).collect()
+    
+
+def delete_insert(table_name, cycle_id, current_date=pd.Timestamp.now().date()):
+    # Construct the SQL query with both conditions
+    query = f"""
+        DELETE FROM {table_name} 
+        WHERE RUN_DATE = '{current_date}' 
+        AND RUN_CYCLE_ID = {cycle_id};
+    """
+    # Log the action
+    logger.info(f"Deleting entries from {table_name} where RUN_DATE = {current_date} and RUN_CYCLE_ID = {cycle_id}")
+    # Execute the query
+    session.sql(query).collect()
+    #session.sql.collect()
+
+def write_to_snowflake(df, table_name, mode="append"):     
+    logger.info(f'Writing to Snowflake table {table_name} with mode {mode}')
+    agg_data_sp = session.create_dataframe(df)
+    agg_data_sp.write.mode(mode).save_as_table(table_name)
+
+
+def fetch_fund_data(session):
+    fund_dealer = """ select DEALER, OBL_CR_LIMIT_AVAIL AS fund_available
+    from MOP_DATABASE.DISPATCH_AUTOMATION_OBL.FundBlocked t
+     WHERE (t.run_date, t.run_cycle_id) IN (
+        SELECT run_date, MAX(run_cycle_id)
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyDispatchableInstances
+        WHERE run_date = (
+            SELECT MAX(run_date)
+            FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyDispatchableInstances
+        )
+        GROUP BY run_date
+        ) 
+        AND FUND_BLOCK_STATUS = 'Not Blocked';
+        """
+       
+    return fetch_data(fund_dealer, session)
+    
+    
+def fetch_dispatchable_data(session):
+    """Fetch unblocked data."""
+    DispatchInstancesQuery = """
+            SELECT * 
+    FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyDispatchableInstances t
+    WHERE (t.run_date, t.run_cycle_id) IN (
+        SELECT run_date, MAX(run_cycle_id)
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_prioritisation
+        WHERE run_date = (
+            SELECT MAX(run_date)
+            FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_prioritisation
+        )
+        GROUP BY run_date
+        );
+
+    """
+       
+    return fetch_data(DispatchInstancesQuery, session)
+
+
+def split_min_qty_into_equal_rows(min_qty):
+    return [1 for _ in range(min_qty)]
+
+def get_inventory_remaining(df,sku):
+    dat=df[df['SKU']==sku].sort_values(by='index',ascending=True)
+    dat['prev_inventory_used_truck']=dat.reset_index(drop=True).index
+    dat['remaining_inventory']=dat['AVAILABLE_QTY'] - dat['prev_inventory_used_truck']
+    return dat
+
+def getmaxRow(df, sku, use_max=False):
+    num_unique_not_null_row_id = df.loc[~pd.isnull(df['row_id']), 'row_id'].nunique()
+
+    if num_unique_not_null_row_id > 0:
+        valid_sku_types = [sku + "_MIN_QTY"]
+        if use_max:
+            valid_sku_types.append(sku + "_MAX_QTY")
+        df['sku_qty'] = df['SKU'] + "_" + df['QTY_TYPE']
+        agg_df = df.groupby("row_id").agg({
+            "sku_qty": list,
+        }).reset_index()
+        agg_df['is_valid'] = agg_df.apply(
+            lambda row: 1 if any(valid_type in row['sku_qty'] for valid_type in valid_sku_types) else 0,
+            axis=1
+        )
+        return agg_df.loc[agg_df['is_valid'] == 1, 'row_id'].tolist()
+
+    return [100000]
+
+def fill_rows(df, max_skus, remaining_fund_dict, max_rows=10, row_filled=0, max_row_multiplier={}, is_truck_filling=False):
+    max_row_multiplier = {}
+    done_data_list = []
+    rows_to_ignore = []
+    ran = max_skus
+    to_iterate = True
+    multiplier_data={"4X":[4]*10,"5X":[5]*10,"3X+2X":[3,2]*5}
+    
+    DEALER = df.DEALER.iloc[0]
+    
+    current_fund_quantity = int(np.floor(remaining_fund_dict.get(DEALER,0)/72000))
+    if current_fund_quantity >= 3 :
+   
+        while to_iterate:
+          
+            for i in range(0, ran + 1):
+                
+                filter_df = df[~df['index'].isin(rows_to_ignore)]
+                
+                sku_row_filled = 0
+                temp = filter_df[filter_df['RANK'] == i]
+              
+                if temp.shape[0] > 0:
+                    sku = temp['SKU'].tolist()[0]
+                    multiplier_order = temp['MULTIPLIER'].tolist()[0]
+                    multiplier = multiplier_data[multiplier_order]
+                    
+                    if multiplier_order in max_row_multiplier:
+                        rows_done_multiplier = int(max_row_multiplier[multiplier_order])
+                        multiplier = multiplier[rows_done_multiplier:]
+                        
+                    same_multiplier_data = filter_df[filter_df['MULTIPLIER'] == multiplier_order]
+                    same_multiplier_data = same_multiplier_data.sort_values(by="index", ascending=True)
+                    cumulative_sum = [sum(multiplier[:i + 1]) for i in range(len(multiplier))]
+    
+                    same_multiplier_data['row_index'] = same_multiplier_data.reset_index(drop=True).index + 1
+                    same_multiplier_data['is_modulus'] = same_multiplier_data['row_index'].apply(
+                        lambda x: 1 if x in cumulative_sum else np.nan)
+                    same_multiplier_data['cum_rows'] = same_multiplier_data['is_modulus'].fillna(0).cumsum()
+                    same_multiplier_data['row_id'] = same_multiplier_data.apply(
+                        lambda row: np.nan if pd.isnull(row['is_modulus']) else row['cum_rows'] + row_filled, axis=1)
+                    same_multiplier_data['row_id'] = same_multiplier_data['row_id'].bfill()
+                    if is_truck_filling == False:
+                        valid_row_id = getmaxRow(same_multiplier_data, sku)
+                        same_multiplier_data = same_multiplier_data[same_multiplier_data['row_id'].isin(valid_row_id)]
+                    if is_truck_filling == False:
+                        same_multiplier_data = same_multiplier_data[same_multiplier_data['row_id'] <= max_rows]
+                    else:
+                        max_additional_rows = row_filled + max_rows
+                        same_multiplier_data = same_multiplier_data[same_multiplier_data['row_id'] <= max_additional_rows] 
+                    if same_multiplier_data.shape[0] > 0:
+                        done_data_list.append(same_multiplier_data)
+                        for val in same_multiplier_data['index'].tolist():
+                            rows_to_ignore.append(val)
+                        valid_row_id = same_multiplier_data.loc[~pd.isnull(same_multiplier_data['row_id']), 'row_id'].unique()
+                        if len(valid_row_id) > 0:
+                            row_filled = max(valid_row_id)
+                        if multiplier_order not in max_row_multiplier:
+                            max_row_multiplier[multiplier_order] = len(same_multiplier_data['row_id'].unique())
+                        else:
+                            max_row_multiplier[multiplier_order] += len(same_multiplier_data['row_id'].unique())               
+                if i == ran:
+                    to_iterate = False
+                if row_filled == max_rows:
+                    to_iterate = False
+            done_data = pd.DataFrame()
+            remaining_data = pd.DataFrame()
+            if len(done_data_list) > 0:
+                done_data = pd.concat(done_data_list)
+                done_data=done_data.iloc[0:current_fund_quantity].copy()
+                row_filled = done_data.loc[done_data['is_modulus'] == 1, 'row_id'].max()
+                row_filled = 0 if pd.isna(row_filled) else int(row_filled)
+                if row_filled > 0:
+                    done_data = done_data.loc[done_data.row_id <= row_filled,:].copy()
+                    rows_to_ignore = done_data['index'].tolist()
+                    if current_fund_quantity <=  len(done_data):
+                        remaining_data = pd.DataFrame()
+                    else:    
+                        remaining_data = df.loc[~df['index'].isin(rows_to_ignore),['QTY','PLANT','DEALER','SKU','AVAILABLE_QTY','MULTIPLIER','SCORE','RANK','MAX_QTY','QTY_TYPE','index']].copy()     
+            remaining_rows = max_rows - row_filled
+    else:
+        row_filled,done_data,rows_to_ignore,remaining_rows,max_row_multiplier,remaining_data = 0,pd.DataFrame(),[],10,0,pd.DataFrame()
+    return row_filled, done_data, rows_to_ignore, remaining_rows, max_row_multiplier, remaining_data
+
+def preprocess_data(merged_data):
+    """
+    Preprocesses the merged_data DataFrame.
+    """
+    merged_data['LOAD_SIZE_MULTIPLES'] = np.where(
+        merged_data['LOAD_SIZE_MULTIPLES'] == '3X+2X (MAX 13)', 
+        '3X+2X', 
+        merged_data['LOAD_SIZE_MULTIPLES']
+    )
+    
+    merged_data=merged_data[['DEALER','PLANT','SKU','LOAD_SIZE_MULTIPLES','FINAL_B2G','MAX_QTY','EOD_AVAILABLE_QUANTITY','B2G_URGENCY_SCORE']].copy()
+    merged_data.columns = ['DEALER', 'PLANT', 'SKU', 'MULTIPLIER', 'MIN_QTY', 'MAX_QTY', 'AVAILABLE_QTY', 'SCORE']
+    return merged_data
+
+
+def split_and_rank_data(data):
+    """
+    Splits the MIN_QTY and MAX_QTY into rows and ranks them by SCORE.
+    """
+    df_list, df_list_2 = [], []
+
+    max_skus = data['ORDER'].max()
+    #print(max_skus,"max skus")
+
+    if not isinstance(max_skus, int):
+        raise TypeError(f"{max_skus} is not an integer")
+
+    for i in range(0, max_skus + 1):
+        temp_df = data[data['ORDER'] == i]
+
+        # MIN_QTY rows
+        min_rows = split_min_qty_into_equal_rows(int(temp_df['MIN_QTY'].tolist()[0]))
+        df_1 = pd.DataFrame({'QTY': min_rows})
+        append_common_columns(df_1, temp_df, "MIN_QTY")
+        df_list.append(df_1)
+
+        # MAX_QTY rows
+        temp_df['REMAINING_QTY'] = temp_df['MAX_QTY'] - temp_df['MIN_QTY']
+        max_rows = split_min_qty_into_equal_rows(int(temp_df['REMAINING_QTY'].tolist()[0]))
+        df_2 = pd.DataFrame({'QTY': max_rows})
+        append_common_columns(df_2, temp_df, "MAX_QTY")
+        df_list_2.append(df_2)
+    df_1 = pd.concat(df_list)
+    df_2 = pd.concat(df_list_2)
+    return pd.concat([df_1, df_2], axis=0)
+
+def append_common_columns(df, temp_df, qty_type):
+    """
+    Appends common columns to the split rows.
+    """
+    df['PLANT'] = temp_df['PLANT'].tolist()[0]
+    df['DEALER'] = temp_df['DEALER'].to_list()[0]
+    df['SKU'] = temp_df['SKU'].tolist()[0]
+    df['AVAILABLE_QTY'] = temp_df['AVAILABLE_QTY'].tolist()[0]
+    df['MULTIPLIER'] = temp_df['MULTIPLIER'].tolist()[0]
+    df['SCORE'] = temp_df['SCORE'].tolist()[0]
+    df['RANK'] = temp_df['ORDER'].tolist()[0]
+    df['MAX_QTY'] = temp_df['MAX_QTY'].tolist()[0]
+    df['QTY_TYPE'] = qty_type
+
+def process_min_qty_rows(df_min, remaining_inventory_dict,remaining_fund_dict):
+    """
+    Processes the rows with MIN_QTY and computes the results.
+    """
+    results_list = []
+    under_order_list = []
+    filtered_inventory_table = pd.DataFrame()
+    incomplete_truck_remaining_data = pd.DataFrame()
+    nill_truck_remaining_data = pd.DataFrame()
+    while not df_min.empty:
+        df_min = df_min.sort_values(by=["SCORE"], ascending=[False]).reset_index(drop=True)
+        top_row = df_min.iloc[0]
+        plant, dealer = top_row['PLANT'], top_row['DEALER']
+        group = df_min[(df_min['PLANT'] == plant) & (df_min['DEALER'] == dealer)]
+        df_min = df_min[~((df_min['PLANT'] == plant) & (df_min['DEALER'] == dealer))]
+        group_data = group.copy()
+        group_data['index'] = group_data.reset_index(drop=True).index
+        group_data['AVAILABLE_QTY'] = group_data.apply(
+            lambda row: remaining_inventory_dict.get((row['PLANT'], row['SKU']), row['AVAILABLE_QTY']),axis=1)
+        inv_df_list = [get_inventory_remaining(group_data, sku) for sku in group_data['SKU'].unique()]
+        group_inv_data = pd.concat(inv_df_list)
+        inv_less_df = group_inv_data[group_inv_data['remaining_inventory'] <= 0]
+        
+        group_inv_data = group_inv_data[group_inv_data['remaining_inventory'] > 0]
+        
+        filtered_inventory_table = pd.concat([filtered_inventory_table, inv_less_df], axis=0)
+        max_skus = group_inv_data['SKU'].nunique()
+        group_inv_data['RANK'] = (
+            pd.factorize(group_inv_data[['PLANT', 'DEALER', 'SKU']].apply(tuple, axis=1))[0]
+        )
+        
+        if group_inv_data.shape[0] > 0 :
+            row_filled, done_data, rows_to_ignore, remaining_rows, max_row_multiplier, remaining_data = fill_rows(group_inv_data, max_skus,remaining_fund_dict)
+            
+            if row_filled == 10:
+                df_min = pd.concat([remaining_data, df_min], axis=0)
+            elif row_filled > 0:
+                incomplete_truck_remaining_data = pd.concat(
+                    [incomplete_truck_remaining_data, remaining_data], axis=0
+                )
+            elif row_filled == 0:
+                nill_truck_remaining_data = pd.concat([nill_truck_remaining_data, remaining_data], axis=0)
+            if len(done_data) > 0:
+                current_plant = done_data['PLANT'].iloc[0]
+                current_dealer = done_data['DEALER'].iloc[0]
+                existing_truck_nos = [ df['Truck_no'].max()
+                    for df in results_list
+                    if df['PLANT'].iloc[0] == current_plant and df['DEALER'].iloc[0] == current_dealer]          
+                if existing_truck_nos:
+                    done_data['Truck_no'] = max(existing_truck_nos) + 1       
+                else:
+                    done_data['Truck_no'] = 1        
+                results_list.append(done_data)
+                min_inventory_group = done_data.groupby(['PLANT', 'SKU'])['remaining_inventory'].min().reset_index()
+                for _, row in min_inventory_group.iterrows():
+                    plant, sku, min_inventory = row['PLANT'], row['SKU'], row['remaining_inventory']
+                    remaining_inventory_dict[(plant, sku)] = min_inventory - 1
+                remaining_fund_dict[dealer] = remaining_fund_dict.get(dealer,0) - (len(done_data) * 72000)              
+            if row_filled == 0:
+                total_qty = group_inv_data['QTY'].sum()
+                unique_skus = group_inv_data['SKU'].nunique()
+                under_order_list.append({
+                    'PLANT': plant,
+                    'DEALER': dealer,
+                    'STATUS': "Under-Ordered",
+                    'NUNIQUE_SKU': unique_skus,
+                    'SUM_QTY': total_qty
+                })
+        else:
+            continue
+    final_done_data = pd.concat(results_list) if results_list else pd.DataFrame()
+    
+    under_order_df = pd.DataFrame(under_order_list)
+    
+    return final_done_data, under_order_df,nill_truck_remaining_data,incomplete_truck_remaining_data,remaining_fund_dict
+
+def main():
+    
+    AllProcessedTrucksMinQty = config['AllProcessedTrucksMinQty']
+    UnderOrderInstances =  config['UnderOrderInstances']
+    DailyMinQtyTrucks = config['DailyMinQtyTrucks']
+    FundBlockedPostMinTrucks=config['FundBlockedPostMinTrucks']
+   
+    
+    dispatchable_data = fetch_dispatchable_data(session)
+    fund_data =fetch_fund_data(session)
+    merged_data = preprocess_data(dispatchable_data)
+    dispatchable_data.loc[(dispatchable_data.DEALER=='10059') & (dispatchable_data.SKU=='HSPLMDRSCFIBHG')]
+    score=dispatchable_data.groupby(['DEALER','SKU'])['B2G_URGENCY_SCORE'].mean().reset_index()
+    #dat = merged_data.loc[(merged_data.PLANT == 'HHHG'), :].copy()
+    dat = merged_data.copy()
+    dat = dat.sort_values(by="SCORE", ascending=False).reset_index(drop=True)
+    dat['ORDER'] = dat.index
+    inventory_data = merged_data[['PLANT', 'SKU', 'AVAILABLE_QTY']].drop_duplicates()
+    
+    remaining_inventory_dict = {
+        (row['PLANT'], row['SKU']): row['AVAILABLE_QTY']
+        for _, row in inventory_data.iterrows()}
+    remaining_fund_dict = {
+        row['DEALER'] : row['FUND_AVAILABLE']
+        for _, row in fund_data.iterrows()}
+    df = split_and_rank_data(dat)
+    df_min = df.loc[df.QTY_TYPE == 'MIN_QTY'].copy()
+
+    
+    #df_min = df_min.loc[(df_min.DEALER == '11682'),:].copy()
+
+    final_done_data, under_order_df, nill_truck_remaining_data, incomplete_truck_remaining_data,remaining_fund_dict = process_min_qty_rows(df_min, remaining_inventory_dict,remaining_fund_dict)
+    # under_order_df
+    # nill_truck_remaining_data
+    # incomplete_truck_remaining_data
+    # remaining_fund_dict
+    row_id_max_data = final_done_data.groupby(['DEALER', 'PLANT', 'Truck_no'])['row_id'].max().reset_index()
+    row_id_max_data.rename(columns={'row_id': 'row_id_max'}, inplace=True)
+    final_done_data = final_done_data.merge(row_id_max_data, on=['DEALER', 'PLANT', 'Truck_no'], how='left')
+
+
+
+    
+    min_agg = final_done_data.groupby(['DEALER', 'PLANT', 'SKU', 'MULTIPLIER', 'Truck_no']).agg(
+        QTY=('QTY', 'sum'),
+        row_id_max=('row_id_max', 'first')).reset_index()
+    min_agg['IS_COMPLETE_TRUCK'] = (min_agg['row_id_max'] == 10).astype(int)
+    
+    min_agg['RUN_DATE'] = pd.Timestamp.now().date()
+    min_agg['RUN_CYCLE_ID'] = cycle_id
+    min_agg['RUN_CYCLE_TIME'] = current_time
+    min_agg['KEY_IDENTIFIER'] = min_agg.PLANT + '_' +  min_agg.DEALER + '_' + min_agg.Truck_no.astype(int).astype(str)
+    min_agg= min_agg[[ 'RUN_DATE','RUN_CYCLE_ID','RUN_CYCLE_TIME','KEY_IDENTIFIER','DEALER','SKU','PLANT','MULTIPLIER','Truck_no','QTY','IS_COMPLETE_TRUCK']].copy()
+    min_agg.columns = ['RUN_DATE','RUN_CYCLE_ID','RUN_CYCLE_TIME','KEY_IDENTIFIER','DEALER','SKU','PLANT','MULTIPLIER','Truck_no','UNITS_TO_BE_DISPATCHED','IS_COMPLETE_TRUCK']
+  
+    min_agg=pd.merge(min_agg,fund_data.loc[fund_data.DEALER.isin(min_agg.DEALER),['DEALER','FUND_AVAILABLE']],on='DEALER',how='left')
+    min_agg['CUMMULATIVE_COST']=min_agg.groupby('DEALER')['UNITS_TO_BE_DISPATCHED'].cumsum() * 72000 
+
+    min_agg=pd.merge(min_agg,score, on =['DEALER','SKU'], how='left')
+    
+    agg_values = min_agg.groupby('KEY_IDENTIFIER')['B2G_URGENCY_SCORE'].agg(
+                    Score_max=lambda x: x.dropna().max(),
+                    Score_Median=lambda x: x.dropna().median()).fillna(0)
+    
+    min_agg['Max_Score'] = min_agg['KEY_IDENTIFIER'].map(agg_values['Score_max'])
+    min_agg['Median_Score'] = min_agg['KEY_IDENTIFIER'].map(agg_values['Score_Median'])
+    
+    min_agg['Max_Score_Rank'] = min_agg.groupby(['PLANT'])['Max_Score'].rank(method='dense',ascending=False)
+    min_agg['Median_Score_Rank'] = min_agg.groupby(['PLANT'])['Median_Score'].rank(method='dense',ascending=False)
+    
+    min_agg = min_agg.sort_values(['PLANT','Max_Score_Rank','KEY_IDENTIFIER'])
+
+   
+    min_agg['CUMMULATIVE_COST']=min_agg.groupby('DEALER')['UNITS_TO_BE_DISPATCHED'].cumsum() * 72000 
+  
+    
+    under_order_df['RUN_DATE'] = pd.Timestamp.now().date()
+    under_order_df['RUN_CYCLE_ID'] = cycle_id
+    under_order_df['RUN_CYCLE_TIME'] = current_time  
+    
+    remaining_fund_dict = pd.DataFrame([{'DEALER': dealer, 'FUND_AVAILABLE': fund} for dealer, fund in remaining_fund_dict.items()])
+    
+    remaining_fund_dict['RUN_DATE'] = pd.Timestamp.now().date()
+    remaining_fund_dict['RUN_CYCLE_ID'] = cycle_id
+    remaining_fund_dict['RUN_CYCLE_TIME'] = current_time  
+    
+    drop_table(AllProcessedTrucksMinQty)
+    write_to_snowflake(final_done_data,AllProcessedTrucksMinQty)
+
+    #drop_table(FundBlockedPostMinTrucks)
+    delete_insert(FundBlockedPostMinTrucks, cycle_id, current_date=datetime.now().date())
+    write_to_snowflake(remaining_fund_dict,FundBlockedPostMinTrucks)
+    if len(under_order_df) > 0:
+         #drop_table(UnderOrderInstances)
+        delete_insert(UnderOrderInstances, cycle_id, current_date=datetime.now().date())
+        write_to_snowflake(under_order_df,UnderOrderInstances)
+    delete_insert(DailyMinQtyTrucks, cycle_id, current_date=datetime.now().date())
+    #drop_table(DailyMinQtyTrucks)
+    write_to_snowflake(min_agg,DailyMinQtyTrucks)    
+    return final_done_data, under_order_df, nill_truck_remaining_data, incomplete_truck_remaining_data,min_agg,remaining_fund_dict, dispatchable_data  
+
+final_done_data, under_order_df, nill_truck_remaining_data, incomplete_truck_remaining_data,min_agg,remaining_fund_dict , dispatchable_data= main()
+time.sleep(20)
+# min_trucks= final_done_data.copy()

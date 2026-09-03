@@ -1,0 +1,221 @@
+# #################################### STEP 2A ##################################################
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import numpy as np
+from snowflake.snowpark.context import get_active_session
+import logging
+
+pd.options.mode.chained_assignment = None
+
+# ------------------------------------------------
+# Logger & Snowflake Session
+# ------------------------------------------------
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+session = get_active_session()
+
+# ------------------------------------------------
+# Utility Functions
+# ------------------------------------------------
+def drop_table(table_name):
+    logger.info(f"Dropping table: {table_name}")
+    session.sql(f"DROP TABLE IF EXISTS {table_name}").collect()
+
+def write_to_snowflake(df, table_name, mode="append"):
+    logger.info(f"Writing to Snowflake table: {table_name}")
+    session.create_dataframe(df).write.mode(mode).save_as_table(table_name)
+
+def fetch_data(query):
+    return session.sql(query).to_pandas()
+
+def get_run_cycle():
+    t = datetime.now().time()
+    if t < datetime.strptime("11:00:00", "%H:%M:%S").time():
+        return 1, t
+    elif t < datetime.strptime("14:00:00", "%H:%M:%S").time():
+        return 2, t
+    elif t < datetime.strptime("16:00:00", "%H:%M:%S").time():
+        return 3, t
+    elif t < datetime.strptime("18:00:00", "%H:%M:%S").time():
+        return 4, t
+    else:
+        return 5, t
+
+cycle_id, _ = get_run_cycle()
+
+# ------------------------------------------------
+# Config
+# ------------------------------------------------
+config = {
+    "PlantB2GTable": "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.PlantB2GTable"
+}
+
+# ================================================================
+# 1. Fetch Base Prioritisation Data
+# ================================================================
+def fetch_prioritisation():
+    query = """
+        SELECT *
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+        WHERE (run_date, run_cycle_id) IN (
+            SELECT run_date, MAX(run_cycle_id)
+            FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            WHERE run_date = (
+                SELECT MAX(run_date)
+                FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            )
+            GROUP BY run_date
+        )
+    """
+    return fetch_data(query)
+
+# ================================================================
+# 2. Fetch Dealer–SKU Dispatch
+# ================================================================
+def fetch_dealer_sku_dispatch():
+    query = """
+        SELECT
+            DEALER,
+            SKU,
+            SUM(QUANTITY_DISPATCHED) AS TOTAL_DISPATCH
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyDispatchTable
+        WHERE (run_date, run_cycle_id) IN (
+            SELECT run_date, MAX(run_cycle_id)
+            FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            WHERE run_date = (
+                SELECT MAX(run_date)
+                FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            )
+            GROUP BY run_date
+        )
+        GROUP BY DEALER, SKU
+    """
+    return fetch_data(query)
+
+# ================================================================
+# 3. Fetch Dealer–SKU–Plant Open Orders
+# ================================================================
+def fetch_dealer_sku_openorders():
+    query = """
+        SELECT
+            DEALER,
+            SKU,
+            PLANT,
+            TOTAL_OPEN_ORDER_QTY AS TOTAL_OPEN_ORDERS
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.OpenOrdersBlocked
+        WHERE (run_date, run_cycle_id) IN (
+            SELECT run_date, MAX(run_cycle_id)
+            FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            WHERE run_date = (
+                SELECT MAX(run_date)
+                FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            )
+            GROUP BY run_date
+        )
+    """
+    return fetch_data(query)
+
+# ================================================================
+# 4. Load & Join Data
+# ================================================================
+df = fetch_prioritisation()
+dispatch_df = fetch_dealer_sku_dispatch()
+openorders = fetch_dealer_sku_openorders()
+
+df = df.merge(dispatch_df, on=["DEALER", "SKU"], how="left")
+df["TOTAL_DISPATCH"] = df["TOTAL_DISPATCH"].fillna(0)
+
+df = df.merge(openorders, on=["DEALER", "SKU", "PLANT"], how="left")
+df["TOTAL_OPEN_ORDERS"] = df["TOTAL_OPEN_ORDERS"].fillna(0)
+
+# ================================================================
+# 5. Date Handling
+# ================================================================
+df["RUN_DATE"] = pd.to_datetime(df["RUN_DATE"], errors="coerce")
+df["MONTH_PROGRESS_FACTOR"] = df["RUN_DATE"].dt.day / df["RUN_DATE"].dt.days_in_month
+
+# ================================================================
+# 6. MTD_B2G_PLANT
+# ================================================================
+df["MTD_B2G_PLANT"] = (
+    df["MONTH_PROGRESS_FACTOR"] * df["MOP_QUANTITY"]
+) - df["TOTAL_DISPATCH"] - df["TOTAL_OPEN_ORDERS"]
+
+# ================================================================
+# 7. Dealer–SKU Aggregations
+# ================================================================
+openorders_dealer = (
+    openorders.groupby(["DEALER", "SKU"])["TOTAL_OPEN_ORDERS"]
+    .sum()
+    .reset_index()
+    .rename(columns={"TOTAL_OPEN_ORDERS": "TOTAL_OPENORDER_DEALER_SKU"})
+)
+
+dealer_sku_agg = (
+    df.groupby(["DEALER", "SKU"], as_index=False)
+      .agg(
+          TOTAL_QUANTITY_DEALER_SKU=("MOP_QUANTITY", "sum"),
+          TOTAL_DISPATCH_DEALER_SKU=("TOTAL_DISPATCH", "sum")
+      )
+)
+
+df = (
+    df.merge(dealer_sku_agg, on=["DEALER", "SKU"], how="left")
+      .merge(openorders_dealer, on=["DEALER", "SKU"], how="left")
+)
+
+df["TOTAL_OPENORDER_DEALER_SKU"] = df["TOTAL_OPENORDER_DEALER_SKU"].fillna(0)
+
+# ================================================================
+# 8. MTD_B2G_OVERALL
+# ================================================================
+df["MTD_B2G_OVERALL"] = (
+    df["MONTH_PROGRESS_FACTOR"] * df["TOTAL_QUANTITY_DEALER_SKU"]
+) - df["TOTAL_DISPATCH_DEALER_SKU"] - df["TOTAL_OPENORDER_DEALER_SKU"]
+
+# ================================================================
+# 9. B2G-BASED PROPORTIONATION
+# ================================================================
+df["POSITIVE_MTD_B2G"] = np.where(df["MTD_B2G_PLANT"] > 0, df["MTD_B2G_PLANT"], 0)
+
+positive_b2g_agg = (
+    df.groupby(["DEALER", "SKU"], as_index=False)
+      .agg(TOTAL_POSITIVE_MTD_B2G=("POSITIVE_MTD_B2G", "sum"))
+)
+
+df = df.merge(positive_b2g_agg, on=["DEALER", "SKU"], how="left")
+df["TOTAL_POSITIVE_MTD_B2G"] = df["TOTAL_POSITIVE_MTD_B2G"].fillna(0)
+
+df["EFFECTIVE_B2G"] = np.where(
+    (df["POSITIVE_MTD_B2G"] > 0) & (df["TOTAL_POSITIVE_MTD_B2G"] > 0),
+    (df["POSITIVE_MTD_B2G"] / df["TOTAL_POSITIVE_MTD_B2G"]) * df["MTD_B2G_OVERALL"],
+    0
+)
+
+df["EFFECTIVE_B2G"] = np.floor(df["EFFECTIVE_B2G"])
+
+# ================================================================
+# 10. Final Output
+# ================================================================
+final_df = df[
+    [
+        "DEALER",
+        "SKU",
+        "PLANT",
+        "MOP_QUANTITY",
+        "TOTAL_DISPATCH",
+        "TOTAL_DISPATCH_DEALER_SKU",
+        "TOTAL_OPEN_ORDERS",
+        "B2G",
+        "MTD_B2G_PLANT",
+        "MTD_B2G_OVERALL",
+        "EFFECTIVE_B2G",
+    ]
+].copy()
+
+# ================================================================
+# 11. Write to Snowflake
+# ================================================================
+drop_table(config["PlantB2GTable"])
+write_to_snowflake(final_df, config["PlantB2GTable"])

@@ -1,0 +1,736 @@
+# #################################### STEP3 ##################################################
+import streamlit as st
+import pandas as pd
+import datetime
+from datetime import datetime,timedelta
+import numpy as np
+from snowflake.snowpark.context import get_active_session
+import re
+import yaml
+import logging
+import os
+import time
+pd.options.mode.chained_assignment = None
+
+# add the b2g in inv snapshot-- done
+# add total dispatched from plant ,sku in the inv snapshot
+
+# Initialize logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+session = get_active_session()
+
+def get_run_cycle():
+    # Get the current time
+    current_time = datetime.now().time()
+    # Define time ranges
+    if current_time >= datetime.strptime("00:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("11:00:00", "%H:%M:%S").time():
+        return 1,current_time
+    elif current_time >= datetime.strptime("11:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("14:00:00", "%H:%M:%S").time():
+        return 2,current_time
+    elif current_time >= datetime.strptime("14:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("16:00:00", "%H:%M:%S").time():
+        return 3,current_time
+    elif current_time >= datetime.strptime("16:00:00", "%H:%M:%S").time() and current_time < datetime.strptime("18:00:00", "%H:%M:%S").time():
+        return 4,current_time
+    else:
+        return 5,current_time
+        
+# Example usage
+cycle_id,current_time = get_run_cycle()
+print(f"Current run cycle: {cycle_id}")
+
+holiday_data = {
+    "HHHD": ["2/2/2025", "2/9/2025", "2/16/2025", "2/23/2025"],
+    "HHHG": ["2/2/2025", "2/9/2025", "2/16/2025", "2/23/2025"],
+    "HHHU": ["2/2/2025", "2/9/2025", "2/16/2025", "2/23/2025"],
+    "HM4N": ["2/2/2025", "2/9/2025", "2/16/2025", "2/23/2025"],
+    "HM5V": ["2/2/2025", "2/9/2025", "2/16/2025", "2/23/2025"],
+    "HM6C": ["2/2/2025", "2/9/2025", "2/16/2025", "2/23/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["3/2/2025", "3/9/2025", "3/14/2025", "3/16/2025", "3/23/2025", "3/30/2025"],
+    "HHHG": ["3/2/2025", "3/9/2025", "3/14/2025", "3/16/2025", "3/23/2025", "3/30/2025"],
+    "HHHU": ["3/2/2025", "3/9/2025", "3/14/2025", "3/16/2025", "3/23/2025", "3/30/2025"],
+    "HM4N": ["3/2/2025", "3/9/2025", "3/14/2025", "3/16/2025", "3/23/2025", "3/30/2025"],
+    "HM5V": ["3/2/2025", "3/9/2025", "3/14/2025", "3/16/2025", "3/23/2025", "3/30/2025"],
+    "HM6C": ["3/2/2025", "3/9/2025", "3/14/2025", "3/16/2025", "3/23/2025", "3/30/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["4/1/2025", "4/6/2025", "4/13/2025", "4/20/2025", "4/27/2025"],
+    "HHHG": ["4/1/2025", "4/6/2025", "4/13/2025", "4/20/2025", "4/27/2025"],
+    "HHHU": ["4/1/2025", "4/6/2025", "4/13/2025", "4/20/2025", "4/27/2025"],
+    "HM4N": ["4/1/2025", "4/6/2025", "4/13/2025", "4/20/2025", "4/27/2025"],
+    "HM5V": ["4/1/2025", "4/6/2025", "4/13/2025", "4/20/2025", "4/27/2025"],
+    "HM6C": ["4/6/2025", "4/13/2025", "4/20/2025", "4/27/2025"]
+}
+
+holiday_data = {
+    "HHHD": [ "5/4/2025", "5/11/2025", "5/18/2025", "5/25/2025"],
+    "HHHG": [ "5/4/2025", "5/11/2025", "5/18/2025", "5/25/2025"],
+    "HHHU": ["5/4/2025", "5/11/2025", "5/18/2025", "5/25/2025"],
+    "HM4N": [ "5/4/2025", "5/11/2025", "5/18/2025", "5/25/2025"],
+    "HM5V": [ "5/4/2025", "5/11/2025", "5/18/2025", "5/25/2025"],
+    "HM6C": ["5/1/2025", "5/4/2025", "5/11/2025", "5/18/2025", "5/25/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["6/1/2025", "6/8/2025", "6/15/2025", "6/22/2025", "6/29/2025"],
+    "HHHG": ["6/1/2025", "6/8/2025", "6/15/2025", "6/22/2025", "6/29/2025"],
+    "HHHU": ["6/1/2025", "6/8/2025", "6/15/2025", "6/22/2025", "6/29/2025"],
+    "HM4N": ["6/1/2025", "6/8/2025", "6/15/2025", "6/22/2025", "6/29/2025"],
+    "HM5V": ["6/1/2025", "6/8/2025", "6/15/2025", "6/22/2025", "6/29/2025"],
+    "HM6C": ["6/1/2025", "6/8/2025", "6/15/2025", "6/22/2025", "6/29/2025"]
+}
+
+
+holiday_data = {
+    "HHHD": ["7/2/2025", "7/6/2025", "7/13/2025", "7/20/2025", "7/27/2025"],
+    "HHHG": ["7/2/2025", "7/6/2025", "7/13/2025", "7/20/2025", "7/27/2025"],
+    "HHHU": ["7/2/2025", "7/6/2025", "7/13/2025",
+             "7/19/2025",             
+             "7/20/2025",               
+             "7/21/2025", "7/22/2025", "7/23/2025", "7/24/2025"],
+    "HM4N": ["7/2/2025", "7/6/2025", "7/13/2025", "7/20/2025", "7/27/2025"],
+    "HM5V": ["7/2/2025", "7/6/2025", "7/13/2025", "7/20/2025", "7/27/2025"],
+    "HM6C": ["7/2/2025", "7/6/2025", "7/13/2025", "7/20/2025", "7/27/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["8/3/2025", "8/9/2025", "8/15/2025", "8/16/2025", "8/24/2025", "8/31/2025"],
+    "HHHG": ["8/3/2025", "8/9/2025", "8/15/2025", "8/16/2025", "8/24/2025", "8/31/2025"],
+    "HHHU": ["8/3/2025", "8/9/2025", "8/10/2025", "8/15/2025", "8/24/2025", "8/31/2025"],
+    "HM4N": ["8/3/2025", "8/9/2025", "8/15/2025", "8/16/2025", "8/24/2025", "8/31/2025"],
+    "HM5V": ["8/3/2025", "8/9/2025", "8/15/2025", "8/16/2025", "8/17/2025", "8/24/2025","8/31/2025"],
+    "HM6C": ["8/3/2025", "8/10/2025", "8/15/2025", "8/17/2025", "8/27/2025", "8/31/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["9/7/2025", "9/14/2025", "9/21/2025", "9/28/2025"],
+    "HHHG": ["9/7/2025", "9/14/2025", "9/21/2025", "9/28/2025"],
+    "HHHU": ["9/7/2025", "9/14/2025", "9/21/2025", "9/28/2025"],
+    "HM4N": ["9/7/2025", "9/14/2025", "9/21/2025", "9/28/2025"],
+    "HM5V": ["9/7/2025", "9/14/2025", "9/21/2025", "9/28/2025"],
+    "HM6C": ["9/7/2025", "9/14/2025", "9/21/2025", "9/28/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HHHG": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HHHU": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HM4N": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HM5V": ["10/2/2025", "10/12/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HM6C": ["10/2/2025", "10/12/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HHHG": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HHHU": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HM4N": ["10/2/2025", "10/10/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HM5V": ["10/2/2025", "10/12/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"],
+    "HM6C": ["10/2/2025", "10/12/2025", "10/19/2025", "10/20/2025", 
+             "10/21/2025", "10/22/2025", "10/23/2025", "10/24/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["11/2/2025", "11/5/2025", "11/9/2025", "11/16/2025", "11/23/2025"],
+    "HHHG": ["11/2/2025", "11/5/2025", "11/9/2025", "11/16/2025", "11/23/2025"],
+    "HHHU": ["11/2/2025", "11/9/2025", "11/16/2025", "11/23/2025"],
+    "HM4N": ["11/2/2025", "11/9/2025", "11/16/2025", "11/23/2025"],
+    "HM5V": ["11/2/2025", "11/9/2025", "11/16/2025", "11/23/2025"],
+    "HM6C": ["11/2/2025", "11/9/2025", "11/16/2025", "11/23/2025"]
+}
+
+holiday_data = {
+    "HHHD": ["12/1/2025", "12/7/2025", "12/14/2025", "12/21/2025", "12/28/2025", "12/29/2025", "12/30/2025", "12/31/2025"],
+    "HHHG": ["12/1/2025", "12/7/2025", "12/14/2025", "12/21/2025", "12/28/2025", "12/29/2025", "12/30/2025", "12/31/2025"],
+    "HHHU": ["12/1/2025", "12/7/2025", "12/14/2025", "12/21/2025", "12/28/2025", "12/29/2025", "12/30/2025", "12/31/2025"],
+    "HM4N": ["12/1/2025", "12/7/2025", "12/14/2025", "12/21/2025", "12/28/2025", "12/29/2025", "12/30/2025", "12/31/2025"],
+    "HM5V": ["12/1/2025", "12/7/2025", "12/14/2025", "12/21/2025", "12/28/2025", "12/29/2025", "12/30/2025", "12/31/2025"],
+    "HM6C": ["12/1/2025", "12/7/2025", "12/14/2025", "12/21/2025", "12/28/2025", "12/29/2025", "12/30/2025", "12/31/2025"]
+}
+
+
+holiday_data = {
+    "HHHD": ["1/1/2026", "1/2/2026", "1/3/2026", "1/11/2026", "1/18/2026", "1/26/2026"],
+    "HHHG": ["1/1/2026", "1/2/2026", "1/3/2026", "1/11/2026", "1/18/2026", "1/26/2026"],
+    "HHHU": ["1/1/2026", "1/2/2026", "1/3/2026", "1/11/2026", "1/18/2026", "1/26/2026"],
+    "HM4N": ["1/1/2026", "1/2/2026", "1/3/2026", "1/11/2026", "1/18/2026", "1/26/2026"],
+    "HM5V": ["1/1/2026", "1/2/2026", "1/11/2026", "1/14/2026", "1/15/2026", "1/18/2026", "1/26/2026"],
+    "HM6C": ["1/1/2026", "1/2/2026", "1/3/2026", "1/11/2026", "1/14/2026", "1/15/2026", "1/16/2026", "1/26/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["2/1/2026", "2/8/2026", "2/15/2026", "2/22/2026"],
+    "HHHG": ["2/1/2026", "2/8/2026", "2/15/2026", "2/22/2026"],
+    "HHHU": ["2/1/2026", "2/8/2026", "2/15/2026", "2/22/2026"],
+    "HM4N": ["2/1/2026", "2/8/2026", "2/15/2026", "2/22/2026"],
+    "HM5V": ["2/1/2026", "2/8/2026", "2/15/2026", "2/22/2026"],
+    "HM6C": ["2/1/2026", "2/8/2026", "2/15/2026", "2/22/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["3/1/2026", "3/4/2026", "3/8/2026", "3/15/2026", "3/22/2026", "3/29/2026"],
+    "HHHG": ["3/1/2026", "3/4/2026", "3/8/2026", "3/15/2026", "3/22/2026", "3/29/2026"],
+    "HHHU": ["3/1/2026", "3/4/2026", "3/8/2026", "3/15/2026", "3/22/2026", "3/29/2026"],
+    "HM4N": ["3/1/2026", "3/4/2026", "3/8/2026", "3/15/2026", "3/22/2026", "3/29/2026"],
+    "HM5V": ["3/1/2026", "3/4/2026", "3/8/2026", "3/15/2026", "3/22/2026", "3/29/2026"],
+    "HM6C": ["3/1/2026", "3/8/2026", "3/15/2026", "3/19/2026", "3/22/2026", "3/29/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["4/1/2026", "4/5/2026", "4/12/2026", "4/19/2026", "4/26/2026"],
+    "HHHG": ["4/1/2026", "4/5/2026", "4/12/2026", "4/19/2026", "4/26/2026"],
+    "HHHU": ["4/1/2026", "4/5/2026", "4/12/2026", "4/19/2026", "4/26/2026"],
+    "HM4N": ["4/1/2026", "4/5/2026", "4/12/2026", "4/19/2026", "4/26/2026"],
+    "HM5V": ["4/1/2026", "4/5/2026", "4/12/2026", "4/19/2026", "4/26/2026"],
+    "HM6C": ["4/1/2026", "4/5/2026", "4/12/2026", "4/19/2026", "4/26/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["5/3/2026", "5/10/2026", "5/17/2026", "5/24/2026", "5/31/2026"],
+    "HHHG": ["5/3/2026", "5/10/2026", "5/17/2026", "5/24/2026", "5/31/2026"],
+    "HHHU": ["5/3/2026", "5/10/2026", "5/17/2026", "5/24/2026", "5/31/2026"],
+    "HM4N": ["5/3/2026", "5/10/2026", "5/17/2026", "5/24/2026", "5/31/2026"],
+    "HM5V": ["5/3/2026", "5/10/2026", "5/17/2026", "5/24/2026", "5/31/2026"],
+    "HM6C": ["5/1/2026", "5/3/2026", "5/10/2026", "5/17/2026", "5/24/2026", "5/31/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["6/7/2026", "6/14/2026", "6/21/2026", "6/28/2026"],
+    "HHHG": ["6/7/2026", "6/14/2026", "6/21/2026", "6/28/2026"],
+    "HHHU": ["6/7/2026", "6/14/2026", "6/21/2026", "6/28/2026"],
+    "HM4N": ["6/7/2026", "6/14/2026", "6/21/2026", "6/28/2026"],
+    "HM5V": ["6/7/2026", "6/14/2026", "6/21/2026", "6/28/2026"],
+    "HM6C": ["6/7/2026", "6/14/2026", "6/21/2026", "6/28/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["7/5/2026", "7/12/2026", "7/19/2026", "7/26/2026"],
+    "HHHG": ["7/5/2026", "7/12/2026", "7/19/2026", "7/26/2026"],
+    "HHHU": ["7/5/2026", "7/12/2026", "7/19/2026", "7/26/2026"],
+    "HM4N": ["7/5/2026", "7/12/2026", "7/19/2026", "7/26/2026"],
+    "HM5V": ["7/5/2026", "7/12/2026", "7/19/2026", "7/26/2026"],
+    "HM6C": ["7/5/2026", "7/12/2026", "7/19/2026", "7/26/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["8/2/2026", "8/9/2026", "8/16/2026", "8/23/2026","8/30/2026"],
+    "HHHG": ["8/2/2026", "8/9/2026", "8/16/2026", "8/23/2026","8/30/2026"],
+    "HHHU": ["8/2/2026", "8/9/2026", "8/16/2026", "8/23/2026","8/30/2026"],
+    "HM4N": ["8/2/2026", "8/9/2026", "8/16/2026", "8/23/2026","8/30/2026"],
+    "HM5V": ["8/2/2026", "8/9/2026", "8/16/2026", "8/23/2026","8/30/2026"],
+    "HM6C": ["8/2/2026", "8/9/2026", "8/16/2026", "8/23/2026","8/30/2026"]
+}
+
+holiday_data = {
+    "HHHD": ["9/6/2026", "9/13/2026", "9/20/2026", "9/27/2026"],
+    "HHHG": ["9/6/2026", "9/13/2026", "9/20/2026", "9/27/2026"],
+    "HHHU": ["9/6/2026", "9/13/2026", "9/20/2026", "9/27/2026"],
+    "HM4N": ["9/6/2026", "9/13/2026", "9/20/2026", "9/27/2026"],
+    "HM5V": ["9/6/2026", "9/13/2026", "9/20/2026", "9/27/2026"],
+    "HM6C": ["9/6/2026", "9/13/2026", "9/20/2026", "9/27/2026"]
+}
+
+
+config={
+    "PropotionedB2GLessThanZero" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.PropotionedB2GLessThanZero",
+    "InventorySnapshot" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.InventorySnapshot",
+    "DispatchableInstances" : "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DailyDispatchableInstances",
+    "MissingModelNamesSKUs" :  "MOP_DATABASE.DISPATCH_AUTOMATION_OBL.MissingModelNamesSKUs",
+    "Max_Quantity_increment_percentage": 1.20
+  }
+
+def fetch_data(query, session):
+    """
+    Fetch data from the database using a SQL query.
+    :param query: SQL query to execute
+    :param session: Active database session
+    :return: DataFrame with fetched data
+    """
+    return session.sql(query).to_pandas()
+
+def drop_table(table_name):
+    query = f'DROP TABLE IF EXISTS {table_name};'
+    logger.info(f'Dropping table: {table_name}')
+    session.sql(query).collect()
+    
+
+def delete_insert(table_name, cycle_id, current_date=pd.Timestamp.now().date()):
+    # Construct the SQL query with both conditions
+    query = f"""
+        DELETE FROM {table_name} 
+        WHERE RUN_DATE = '{current_date}' 
+        AND RUN_CYCLE_ID = {cycle_id};
+    """
+    # Log the action
+    logger.info(f"Deleting entries from {table_name} where RUN_DATE = {current_date} and RUN_CYCLE_ID = {cycle_id}")
+    # Execute the query
+    session.sql(query).collect()
+    #session.sql.collect()
+
+def write_to_snowflake(df, table_name, mode="append"):     
+    logger.info(f'Writing to Snowflake table {table_name} with mode {mode}')
+    agg_data_sp = session.create_dataframe(df)
+    agg_data_sp.write.mode(mode).save_as_table(table_name)
+
+
+
+def rank_with_fallback(df, urgency_col, quantity_col):
+    # Separate positive and non-positive quantity values
+    positive_df = df[df[quantity_col] > 0].copy()
+    non_positive_df = df[df[quantity_col] <= 0].copy()
+
+    # Rank the positive quantity values first
+    positive_df = positive_df.sort_values(by=[urgency_col, quantity_col], ascending=[False, False])
+    positive_df['MODIFIED_URGENCY_RANK'] = range(1, len(positive_df) + 1)
+
+    # Rank the non-positive quantity values next
+    non_positive_df = non_positive_df.sort_values(by=[urgency_col], ascending=[False])
+    non_positive_df['MODIFIED_URGENCY_RANK'] = range(len(positive_df) + 1, len(positive_df) + len(non_positive_df) + 1)
+
+    # Combine both dataframes
+    ranked_df = pd.concat([positive_df, non_positive_df])
+
+    return ranked_df
+  
+
+def fetch_config_values(config):
+    """Fetch configuration values from the config dictionary."""
+    return (
+        config['PropotionedB2GLessThanZero'],
+        config['MissingModelNamesSKUs'],
+        config['DispatchableInstances'],
+        config['InventorySnapshot']
+    )
+
+
+def fetch_plant_inventory(session):
+    """Fetch plant inventory data."""
+    plant_inventory_query = """
+     SELECT a.PLANT AS PLANT, a.SKU, SUM(a.QTY) AS AVAILABLE_PLANT_STOCK 
+    FROM SAP_DATA_DATABASE.SAP_DATA.VW_PLANT_INVENTORY a
+    group by 1,2;
+    """
+    return fetch_data(plant_inventory_query, session)
+
+
+def fetch_prioritisation(session):
+    """Fetch plant inventory data."""
+    plant_inventory_query = """
+       SELECT * 
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.DAILY_DISPATCH_PRIORITISATION t
+        WHERE (t.run_date, t.run_cycle_id) IN (
+            SELECT run_date, MAX(run_cycle_id)
+            FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            WHERE run_date = (
+                SELECT MAX(run_date)
+                FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_Unconstrained_file
+            )
+            GROUP BY run_date
+        );
+    """
+    return fetch_data(plant_inventory_query, session)
+
+
+def fetch_PlantB2G (session):
+    """Fetch Plant B2G data."""
+    PlantB2G_query = """
+       SELECT * 
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.PlantB2GTable ;
+    """
+    return fetch_data(PlantB2G_query, session)
+
+
+def fetch_today_production_stock(session):
+    """Fetch today's production stock data."""
+    plant_plan_today_query = """
+       select PLANT, SKU, SUM(TODAY_PRODUCTION_STOCK) as TODAY_PRODUCTION_STOCK from
+       (SELECT 
+    CASE
+        WHEN ZLINE LIKE '1%' THEN 'HHHD'
+        WHEN ZLINE LIKE '2%' THEN 'HHHG'
+        WHEN ZLINE LIKE '3%' THEN 'HHHU'
+        WHEN ZLINE LIKE '4%' THEN  'HM4N'
+        WHEN ZLINE LIKE '5%' THEN  'HM5V'
+        WHEN ZLINE LIKE '6%' THEN  'HM6C'
+          
+            END AS PLANT,
+            Plan AS TODAY_PRODUCTION_STOCK,
+            MCODE AS SKU
+            
+        from (
+        
+                select A.ZLINE,A.Plan, B.MCODE
+                from
+                (select ZLINE,MODEL_KEY, sum(ZQTY) as Plan from ANALYTICS_DATABASE.ANALYTICS_OPERATION.PRD_PLAN_F_FUTURE_DATA 
+                where DATE_KEY = TO_CHAR(CURRENT_DATE, 'yyyymmdd') group by ZLINE,MODEL_KEY ) A
+                left join 
+                (select KEY, MCODE from ANALYTICS_DATABASE.ANALYTICS_SALES.MODEL_D) B
+                ON
+                A.MODEL_KEY = B.KEY
+        
+        )) group by 1,2;
+    """
+    return fetch_data(plant_plan_today_query, session)
+
+
+def fetch_lot_size(session):
+    """Fetch lot size data."""
+    lot_size_query = """SELECT * FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.MODEL_LOAD_SIZE;"""
+    return fetch_data(lot_size_query, session)
+
+def fetch_open_order(session):
+    open_order_query = """select PLANT, SKU, sum(TOTAL_OPEN_ORDER_QTY) as OPEN_ORDER_QTY from MOP_DATABASE.DISPATCH_AUTOMATION_OBL.OpenOrdersBlocked t
+                           WHERE (t.run_date, t.run_cycle_id) IN (
+                          SELECT run_date, MAX(run_cycle_id)
+                             FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_unblocked_table
+                     WHERE run_date = (
+                        SELECT MAX(run_date)
+                        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_unblocked_table
+                            )
+                        GROUP BY run_date)  group by 1,2;"""
+    return fetch_data(open_order_query, session)
+    
+def combine_inventory_and_production(plant_inventory, plant_plan_today,InventorySnapshot,open_order,unblocked_data, prioritisation):
+    """Combine inventory and production data."""
+    total_inventory = pd.merge(
+        plant_inventory, plant_plan_today, on=['PLANT', 'SKU'], how='outer'
+    ).fillna(0)
+   
+    total_inventory= pd.merge(total_inventory, open_order, on =['PLANT','SKU'], how = 'left')
+    total_inventory.OPEN_ORDER_QTY.fillna(0,inplace=True)
+    total_inventory['EOD_AVAILABLE_QUANTITY'] = (
+        total_inventory['AVAILABLE_PLANT_STOCK'].fillna(0) + total_inventory['TODAY_PRODUCTION_STOCK'].fillna(0) - total_inventory['OPEN_ORDER_QTY'].fillna(0)
+    )
+ 
+    total_inventory['RUN_DATE'] = pd.Timestamp.now().date()
+    total_inventory.EOD_AVAILABLE_QUANTITY =  np.where( total_inventory.EOD_AVAILABLE_QUANTITY.fillna(0) > 0, total_inventory.EOD_AVAILABLE_QUANTITY.fillna(0), 0)
+    total_inventory=total_inventory.loc[total_inventory.EOD_AVAILABLE_QUANTITY > 0,:].copy()
+    total_inventory = total_inventory[['RUN_DATE','PLANT','SKU','AVAILABLE_PLANT_STOCK','TODAY_PRODUCTION_STOCK','OPEN_ORDER_QTY','EOD_AVAILABLE_QUANTITY']].copy()
+  
+    
+    filtered_prioritisation = prioritisation[prioritisation['B2G'] > 0]
+    initial_b2g = filtered_prioritisation.groupby(['PLANT', 'SKU'])['B2G'].sum().reset_index()
+    initial_b2g.columns =['PLANT','SKU','INITIAL_B2G']
+
+    mop=prioritisation.groupby(['PLANT','SKU'])['QUANTITY'].sum().reset_index()
+    mop.columns = ['PLANT','SKU', 'PLANNED_QUANTITY']
+    b2g=unblocked_data.groupby(['PLANT','SKU'])['B2G'].sum().reset_index()
+    total_inventory=pd.merge(total_inventory,initial_b2g, on =['PLANT','SKU'], how='left')
+    total_inventory=pd.merge(total_inventory,b2g, on =['PLANT','SKU'], how='left')
+    total_inventory=pd.merge(total_inventory,mop, on =['PLANT','SKU'], how='inner')
+    total_inventory.B2G.fillna(0, inplace=True)
+    total_inventory.PLANNED_QUANTITY.fillna(0, inplace=True)
+    total_inventory.INITIAL_B2G.fillna(0, inplace=True)
+ 
+    
+    #drop_table(InventorySnapshot)
+    total_inventory['RUN_CYCLE_ID'] = cycle_id
+    total_inventory['RUN_CYCLE_TIME'] = current_time
+    delete_insert(InventorySnapshot, cycle_id, current_date=datetime.now().date())
+    write_to_snowflake(total_inventory, InventorySnapshot)
+    return total_inventory.drop(['RUN_DATE','RUN_CYCLE_ID','RUN_CYCLE_TIME','B2G','PLANNED_QUANTITY','INITIAL_B2G'],axis=1)
+
+
+def fetch_unblocked_data(session):
+    """Fetch unblocked data."""
+    unblocked_query = """
+      SELECT * 
+        FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_unblocked_table t
+        WHERE (t.run_date, t.run_cycle_id) IN (
+            SELECT run_date, MAX(run_cycle_id)
+            FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_unblocked_table
+            WHERE run_date = (
+                SELECT MAX(run_date)
+                FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.Daily_dispatch_unblocked_table
+            )
+            GROUP BY run_date
+        );
+    """
+    unblocked_data= fetch_data(unblocked_query, session)
+    #unblocked_data.loc[unblocked_data.SKU=='HDESEDSZCFIMGV',:]
+    unblocked_data['RUN_CYCLE_ID'] = cycle_id
+    unblocked_data['RUN_CYCLE_TIME'] = current_time
+    unblocked_data=unblocked_data.loc[unblocked_data.B2G.fillna(0)>0,:]
+    #unblocked_data.loc[(unblocked_data.DEALER=='11845') & (unblocked_data.SKU == 'HSPPPDRSCFIBKG'),:]
+    return unblocked_data
+
+
+# def handle_b2g_less_than_zero(unblocked_data, B2GLessThanZero):
+#     """Handle B2G less than zero."""
+#     delete_insert(B2GLessThanZero, current_date=datetime.now().date())
+#     write_to_snowflake(unblocked_data[unblocked_data['B2G'] <= 0], B2GLessThanZero)
+#     print(unblocked_data.shape, " Before filtering B2G > 0 ")
+#     print(unblocked_data.loc[unblocked_data['B2G'] > 0].shape, " Post filtering B2G > 0 ")
+#     return unblocked_data[unblocked_data['B2G'] > 0]
+
+
+
+
+
+def calculate_remaining_working_days_for_plants(current_date, holiday_data):
+    next_month = 1 if current_date.month == 12 else current_date.month + 1
+    next_year = current_date.year + 1 if current_date.month == 12 else current_date.year
+    total_days_in_month = (datetime(next_year, next_month, 1) - timedelta(days=1)).day
+    total_working_days_in_month = {}
+    remaining_working_days = {}
+    working_days_past = {}
+
+    for plant, holidays in holiday_data.items():
+        # Convert holiday strings to datetime.date objects
+        holidays = [datetime.strptime(date, '%m/%d/%Y').date() for date in holidays]
+        
+        # Calculate total working days in the month
+        total_working_days = total_days_in_month - len(
+            [day for day in range(1, total_days_in_month + 1)
+             if datetime(current_date.year, current_date.month, day).date() in holidays]
+        )
+        
+        # Calculate days past as working days
+        days_past = [
+            day for day in range(1, current_date.day )
+            if datetime(current_date.year, current_date.month, day).date() not in holidays
+        ]
+        
+        # Calculate remaining working days
+        remaining_days_in_month = [
+            day for day in range(current_date.day, total_days_in_month + 1)
+            if datetime(current_date.year, current_date.month, day).date() not in holidays
+        ]
+        
+        # Store results
+        total_working_days_in_month[plant] = total_working_days
+        working_days_past[plant] = len(days_past) + 1
+        remaining_working_days[plant] = len(remaining_days_in_month)
+    return total_working_days_in_month, working_days_past, remaining_working_days
+
+def merge_with_plant_B2G(unblocked_data, plant_B2G):
+    """Merge unblocked data with lot size and handle missing models."""
+    unblocked_data = pd.merge(unblocked_data, plant_B2G[["DEALER","SKU","PLANT","MTD_B2G_OVERALL", "EFFECTIVE_B2G","TOTAL_DISPATCH","TOTAL_DISPATCH_DEALER_SKU"]], on=["DEALER","SKU","PLANT"], how='left')
+    
+    # if unblocked_data.loc[unblocked_data.EFFECTIVE_B2G.isnull(), :].shape[0] > 0:
+        
+    #     delete_insert(MissingModelNamesSKUs, cycle_id, current_date=datetime.now().date())
+    #     #drop_table(MissingModelNamesSKUs)
+    #     write_to_snowflake(
+    #         unblocked_data.loc[(unblocked_data.LOAD_SIZE_MULTIPLES.isnull()), :][
+    #             ['RUN_DATE','RUN_CYCLE_ID','RUN_CYCLE_TIME', 'SKU', 'MODEL', 'LOAD_SIZE_MULTIPLES']
+    #         ].drop_duplicates(),
+    #         MissingModelNamesSKUs
+    #     )
+    # print("Load size multiples not found for the following SKUs:",
+    #       unblocked_data.loc[unblocked_data.LOAD_SIZE_MULTIPLES.isnull(), 'SKU'].unique())
+    unblocked_data['EFFECTIVE_B2G'].fillna(0,inplace=True)
+    unblocked_data['MTD_B2G_OVERALL'].fillna(0,inplace=True)
+    unblocked_data['TOTAL_DISPATCH'].fillna(0,inplace=True)
+    unblocked_data['TOTAL_DISPATCH_DEALER_SKU'].fillna(0,inplace=True)
+    return unblocked_data.copy()
+
+
+
+def merge_with_lot_size(unblocked_data, LOT_SIZE, MissingModelNamesSKUs):
+    """Merge unblocked data with lot size and handle missing models."""
+    unblocked_data = pd.merge(unblocked_data, LOT_SIZE[['MODEL', 'LOAD_SIZE_MULTIPLES']], on='MODEL', how='left')
+    
+    if unblocked_data.loc[unblocked_data.LOAD_SIZE_MULTIPLES.isnull(), :].shape[0] > 0:
+        
+        delete_insert(MissingModelNamesSKUs, cycle_id, current_date=datetime.now().date())
+        #drop_table(MissingModelNamesSKUs)
+        write_to_snowflake(
+            unblocked_data.loc[(unblocked_data.LOAD_SIZE_MULTIPLES.isnull()), :][
+                ['RUN_DATE','RUN_CYCLE_ID','RUN_CYCLE_TIME', 'SKU', 'MODEL', 'LOAD_SIZE_MULTIPLES']
+            ].drop_duplicates(),
+            MissingModelNamesSKUs
+        )
+    print("Load size multiples not found for the following SKUs:",
+          unblocked_data.loc[unblocked_data.LOAD_SIZE_MULTIPLES.isnull(), 'SKU'].unique())
+    return unblocked_data.loc[(unblocked_data.LOAD_SIZE_MULTIPLES.notnull()), :].copy()
+
+
+def compute_metrics(unblocked_data, total_inventory):
+    """Compute metrics for unblocked data."""
+    unblocked_data = pd.merge(unblocked_data, total_inventory, on=['PLANT', 'SKU'], how='left')
+    inventory_columns = ['AVAILABLE_PLANT_STOCK', 'TODAY_PRODUCTION_STOCK', 'EOD_AVAILABLE_QUANTITY']
+    unblocked_data[inventory_columns] = unblocked_data[inventory_columns].fillna(0)
+    
+    unblocked_data['SALES_VELOCITY_7DAYS'] = np.round(
+        unblocked_data['LAST_N_DAY_SALES'].fillna(0) / 15, 5
+    )
+    unblocked_data['SKU_SALES_PROPORTION_OVERALL'] = np.round(
+        unblocked_data['LAST_N_DAY_SALES'].fillna(0) /
+        unblocked_data.groupby('SKU')['LAST_N_DAY_SALES'].transform('sum').fillna(1), 5
+    )
+    return unblocked_data
+
+
+def calculate_reorder_urgency_scores(unblocked_data, beta=0.5, gamma=0.5):
+    """Calculate reorder urgency scores."""
+    unblocked_data['RECENCY_FACTOR'] = (
+        beta * unblocked_data['SALES_VELOCITY_7DAYS'].fillna(0) +
+        (1 - beta) * unblocked_data['SKU_SALES_PROPORTION_OVERALL'].fillna(0)
+    )
+    unblocked_data['MODIFIED_REORDER_URGENCY_SCORE'] = (
+        gamma * unblocked_data['Daily_Reorder_level_urgency'].fillna(0) +
+        (1 - gamma) * unblocked_data['RECENCY_FACTOR'].fillna(0)
+    )
+    unblocked_data['MODIFIED_REORDER_URGENCY_SCORE_PLANT_PROPORTION'] = np.round(
+        unblocked_data['MODIFIED_REORDER_URGENCY_SCORE'].fillna(0) /
+        unblocked_data.groupby(['SKU', 'PLANT'])['MODIFIED_REORDER_URGENCY_SCORE'].transform('sum').fillna(1), 5
+    )
+    
+    unblocked_data['B2G_PROPORTION'] = np.round(unblocked_data['EFFECTIVE_B2G'] /
+    unblocked_data.groupby(['PLANT', 'SKU'])['EFFECTIVE_B2G'].transform('sum').fillna(1), 5
+    )
+    unblocked_data['B2G_URGENCY_SCORE'] = (
+    unblocked_data['B2G_PROPORTION'].fillna(0) + unblocked_data['MODIFIED_REORDER_URGENCY_SCORE_PLANT_PROPORTION'].fillna(0)
+    )
+    unblocked_data['NORMALISED_B2G_URGENCY_SCORE'] = np.round(
+    unblocked_data['B2G_URGENCY_SCORE'].fillna(0) /
+    unblocked_data.groupby(['PLANT', 'SKU'])['B2G_URGENCY_SCORE'].transform('sum').fillna(1), 5
+    )
+    return unblocked_data
+
+
+def finalize_b2g(unblocked_data, PropotionedB2GLessThanZero):
+    """Finalize B2G values and handle proportioned B2G less than zero."""
+    current_date = datetime.now()
+    remaining_days_map, days_gone, remaining_working_days = calculate_remaining_working_days_for_plants(current_date, holiday_data)
+    #remaining_days_map, days_gone, remaining_working_days
+    unblocked_data['Prorated_Quantity'] = unblocked_data.apply(lambda row: np.ceil(calculate_prorated_quantity(row, remaining_days_map, days_gone)), axis=1)
+
+    
+    # unblocked_data['FINAL_B2G'] = np.minimum(
+    #     np.floor(unblocked_data['NORMALISED_B2G_URGENCY_SCORE'].fillna(0) * unblocked_data['EOD_AVAILABLE_QUANTITY'].fillna(0)),
+    #     unblocked_data['B2G'].fillna(0)
+    # )
+
+    unblocked_data['Prorated_Quantity_B2G'] = (unblocked_data['Prorated_Quantity'].fillna(0) - unblocked_data['TOTAL_DISPATCH'].fillna(0) -  unblocked_data['TOTAL_OPEN_ORDER_QTY'].fillna(0)) 
+
+    unblocked_data['FINAL_B2G'] = np.minimum(
+                                    np.minimum(
+                                        np.floor(unblocked_data['NORMALISED_B2G_URGENCY_SCORE'].fillna(0) * unblocked_data['EOD_AVAILABLE_QUANTITY'].fillna(0)),
+                                        unblocked_data['EFFECTIVE_B2G'].fillna(0)
+                                    ),unblocked_data['Prorated_Quantity_B2G'].fillna(0))
+    
+    print(unblocked_data.loc[unblocked_data['FINAL_B2G'] > 0].shape, " Post filtering final B2G > 0 ")
+    unblocked_data.drop(['Prorated_Quantity','Prorated_Quantity_B2G'],axis=1,inplace=True)
+    #drop_table(PropotionedB2GLessThanZero)
+    delete_insert(PropotionedB2GLessThanZero, cycle_id, current_date=datetime.now().date())
+    write_to_snowflake(unblocked_data[unblocked_data['FINAL_B2G'] <= 0], PropotionedB2GLessThanZero)
+    return unblocked_data[unblocked_data['FINAL_B2G'] > 0]
+
+def calculate_prorated_quantity(row, remaining_days_map, days_gone):
+    plant = row['PLANT']  # Get the plant for the current row
+    total_days_in_month = remaining_days_map.get(plant, 0)  # Get remaining days for the plant
+    
+    if total_days_in_month == 0:  # Avoid division by zero
+        return 0
+    
+    prorated_quantity = (row['QUANTITY'] / total_days_in_month) * days_gone.get(plant,0)  # Calculate prorated quantity
+    return prorated_quantity
+
+
+def save_dispatchable_instances(unblocked_data, total_inventory,DispatchableInstances,current_date, holiday_data,Max_Quantity_increment_percentage):
+    """Save dispatchable instances."""
+    remaining_days_map, days_gone, remaining_working_days = calculate_remaining_working_days_for_plants(current_date, holiday_data)
+    #remaining_days_map, days_gone, remaining_working_days
+    unblocked_data['Prorated_Quantity'] = unblocked_data.apply(lambda row: np.ceil(calculate_prorated_quantity(row, remaining_days_map, days_gone)), axis=1)
+    
+    unblocked_data['Prorated_Quantity_B2G'] = (unblocked_data['Prorated_Quantity'].fillna(0) - unblocked_data['TOTAL_DISPATCH'].fillna(0) - unblocked_data['TOTAL_OPEN_ORDER_QTY'].fillna(0))
+   
+    unblocked_data['MAX_QTY_V1'] =((unblocked_data['Prorated_Quantity'].fillna(0) - unblocked_data['TOTAL_DISPATCH'].fillna(0)-  unblocked_data['TOTAL_OPEN_ORDER_QTY'].fillna(0)).combine(unblocked_data['FINAL_B2G'], max))
+   
+    max_qty_v1_agg = unblocked_data.groupby(['PLANT', 'SKU'])['MAX_QTY_V1'].sum().reset_index()
+    
+    eod_qty_agg = total_inventory.groupby(['PLANT', 'SKU'])['EOD_AVAILABLE_QUANTITY'].sum().reset_index()
+    
+    merged_data = pd.merge(max_qty_v1_agg, eod_qty_agg, on=['PLANT', 'SKU'], how='left')
+    
+    merged_data['is_understocked'] = merged_data['EOD_AVAILABLE_QUANTITY'] < merged_data['MAX_QTY_V1']
+    
+    unblocked_data = pd.merge(unblocked_data, merged_data[['PLANT', 'SKU', 'is_understocked']], on=['PLANT', 'SKU'], how='left')
+    
+    unblocked_data['SUM_MAX_QTY_V1'] = unblocked_data.groupby(['PLANT', 'SKU'])['MAX_QTY_V1'].transform('sum')
+    
+    unblocked_data['Normalized_MAX_QTY'] = unblocked_data.apply(lambda row: (row['MAX_QTY_V1'] / row['SUM_MAX_QTY_V1']) if row['is_understocked'] else 1, axis=1)
+
+    unblocked_data['MAX_QTY'] = np.floor(unblocked_data.apply(
+        lambda row: row['EOD_AVAILABLE_QUANTITY'] * row['Normalized_MAX_QTY'] if row['is_understocked'] 
+        else row['MAX_QTY_V1'], axis=1))
+    
+    unblocked_data.MAX_QTY.fillna(0,inplace=True)
+    
+    unblocked_data.drop(columns=['SUM_MAX_QTY_V1', 'is_understocked'], inplace=True)
+
+    unblocked_data["MAX_QTY"] = np.minimum(np.minimum(np.maximum(unblocked_data["MAX_QTY"], unblocked_data["FINAL_B2G"]),
+                                           np.floor(unblocked_data['FINAL_B2G'] * Max_Quantity_increment_percentage)), unblocked_data['B2G'])
+
+
+    unblocked_data = rank_with_fallback(unblocked_data, 'B2G_URGENCY_SCORE', 'FINAL_B2G')
+    
+    unblocked_data = unblocked_data.sort_values('MODIFIED_URGENCY_RANK')
+
+    unblocked_data['N'] = 15
+    unblocked_data['PRORITY_RANK_PLANT_WISE'] = unblocked_data.groupby('PLANT')['MODIFIED_URGENCY_RANK'].rank( method='first' )
+    
+    unblocked_data = unblocked_data.sort_values(['PLANT','PRORITY_RANK_PLANT_WISE'])
+
+    unblocked_data = unblocked_data.rename(columns={"expected_demand_in_day": "EXPECTED_DEMAND_REMAINDER_WEEK", "SALES_VELOCITY_7DAYS": "LAST_N_DAY_PER_DAY_SALES",
+                                                   "MODIFIED_URGENCY_RANK" : "PRIORITY_RANK_OVERALL","OPEN_ORDER_QTY":"PLANT_SKU_OPEN_ORDER_QTY"})
+
+    unblocked_data.PLANT_SKU_OPEN_ORDER_QTY.fillna(0,inplace=True)
+    unblocked_data.drop('Prorated_Quantity_B2G',axis=1,inplace=True)
+    #drop_table(DispatchableInstances)
+    delete_insert(DispatchableInstances, cycle_id, current_date=datetime.now().date())
+    write_to_snowflake(unblocked_data, DispatchableInstances)
+    return unblocked_data
+
+
+# Main Execution
+def main(config, session):
+    current_date = datetime.now()
+    PropotionedB2GLessThanZero, MissingModelNamesSKUs, DispatchableInstances,InventorySnapshot = fetch_config_values(config)
+
+    Max_Quantity_increment_percentage =  config['Max_Quantity_increment_percentage']
+
+    plant_inventory = fetch_plant_inventory(session)
+    plant_plan_today = fetch_today_production_stock(session)
+    LOT_SIZE = fetch_lot_size(session)
+    unblocked_data = fetch_unblocked_data(session)
+    prioritisation= fetch_prioritisation(session)
+    
+    PlantB2G = fetch_PlantB2G(session)
+    
+    open_order = fetch_open_order(session)
+    total_inventory = combine_inventory_and_production(plant_inventory, plant_plan_today,InventorySnapshot,open_order,unblocked_data,prioritisation)
+    
+    unblocked_data= merge_with_plant_B2G(unblocked_data, PlantB2G)
+    unblocked_data = merge_with_lot_size(unblocked_data, LOT_SIZE, MissingModelNamesSKUs)
+    #unblocked_data.loc[(unblocked_data.SKU == 'HPLNDDRVCFIBTL'),:]
+    unblocked_data = compute_metrics(unblocked_data, total_inventory)
+    #unblocked_data.loc[(unblocked_data.SKU == 'HPLNDDRVCFIBTL'),:]
+    unblocked_data = calculate_reorder_urgency_scores(unblocked_data)
+    #unblocked_data.loc[(unblocked_data.SKU == 'HSPSADSSCFIMBN'),:]
+    
+    unblocked_data = finalize_b2g(unblocked_data, PropotionedB2GLessThanZero)
+    #unblocked_data.loc[(unblocked_data.SKU == 'HSPSADSSCFIMBN'),:]
+    dispatchable_data = save_dispatchable_instances(unblocked_data, total_inventory,DispatchableInstances,current_date,holiday_data,Max_Quantity_increment_percentage)
+    print(dispatchable_data.shape, dispatchable_data.B2G.sum())
+    return dispatchable_data,plant_inventory,plant_plan_today,total_inventory
+
+dispatchable_data,plant_inventory,plant_plan_today,total_inventory = main(config, session)
+time.sleep(20)
