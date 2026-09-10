@@ -79,13 +79,24 @@ FREQ              = ROLES["freq"]
 static_covariates = ROLES["static_covariates"]
 future_covariates = ROLES["future_covariates"]
 
-TRAIN_END = pd.Timestamp("2026-04-30")
-VAL_START = pd.Timestamp("2026-05-01")
-VAL_END   = pd.Timestamp("2026-07-30")
+TRAIN_START = pd.Timestamp(ROLES.get("train_start", "2023-04-01"))
+TRAIN_END   = pd.Timestamp(ROLES.get("train_end",   "2026-04-30"))
+VAL_START   = pd.Timestamp(ROLES.get("val_start",   "2026-05-01"))
+VAL_END     = pd.Timestamp(ROLES.get("val_end",     "2026-08-31"))
+
+FORECAST_START = pd.Timestamp(ROLES.get("forecast_start", "2026-09-01"))
+FORECAST_END   = pd.Timestamp(ROLES.get("forecast_end",   "2026-12-07"))
 
 INPUT_CHUNK_LENGTH  = 365
-OUTPUT_CHUNK_LENGTH = 154
-TEST_HORIZON        = 154
+OUTPUT_CHUNK_LENGTH = 98
+TEST_HORIZON        = (FORECAST_END - FORECAST_START).days + 1   # 98
+
+assert TEST_HORIZON == OUTPUT_CHUNK_LENGTH, (
+    f"Forecast window is {TEST_HORIZON} days but OUTPUT_CHUNK_LENGTH is "
+    f"{OUTPUT_CHUNK_LENGTH}. Predicting n > output_chunk_length forces Darts "
+    f"into auto-regressive rollout, which compounds error across the festive "
+    f"peak. Keep them equal."
+)
 
 # festive sample weighting -- replaces the old custom-loss festive term.
 # 1.0 means "no weighting"; raise it to make festive days matter more.
@@ -354,7 +365,7 @@ print(f"Covariate calendar: {cal[time_col].min().date()} -> {cal[time_col].max()
       f"({len(cal)} days, {len(future_covariates)} cols)")
 
 # the calendar must reach the end of the forecast horizon or predict() fails
-required_end = VAL_END + pd.Timedelta(days=TEST_HORIZON)
+required_end = FORECAST_END
 if cal[time_col].max() < required_end:
     raise ValueError(
         f"Calendar ends {cal[time_col].max().date()} but the forecast needs "
