@@ -62,8 +62,18 @@ target_col = 'NET_SALES'
 CHUNK_SIZE = 100
 FREQ       = 'D'
 
-TRAIN_CUTOFF = '2026-07-30'     # last date that goes in the train parquet set
-TEST_START   = '2026-07-31'
+# The "train" parquet set must cover everything the modelling script reads as
+# history, which includes the validation strip -- so it runs to VAL_END, not to
+# TRAIN_END. The modelling script splits train vs val inside that range.
+TRAIN_START   = '2023-04-01'
+TRAIN_END     = '2026-04-30'
+VAL_START     = '2026-05-01'
+VAL_END       = '2026-08-31'
+FORECAST_START = '2026-09-01'
+FORECAST_END   = '2026-12-07'      # 98 days -> OCL = 98
+
+TRAIN_CUTOFF = VAL_END             # last date written to local_train_dir
+TEST_START   = FORECAST_START      # first date written to local_test_dir
 
 
 # =============================================================================
@@ -160,9 +170,16 @@ print("\nfestive_covariates:", len(festive_covariates), "columns")
 # SECTION 4: TRAIN / TEST SPLIT AND GROUP-KEY SANITISATION
 # =============================================================================
 
-train_set = df.filter(F.col(time_col) <= TRAIN_CUTOFF)
-test_set  = df.filter(F.col(time_col) >= TEST_START)
+train_set = df.filter(
+    (F.col(time_col) >= TRAIN_START) & (F.col(time_col) <= TRAIN_CUTOFF)
+)
+test_set = df.filter(
+    (F.col(time_col) >= TEST_START) & (F.col(time_col) <= FORECAST_END)
+)
 
+print(f"\nTrain parquet range: {TRAIN_START} -> {TRAIN_CUTOFF} "
+      f"(covers TRAIN {TRAIN_START}..{TRAIN_END} AND VAL {VAL_START}..{VAL_END})")
+print(f"Test  parquet range: {TEST_START} -> {FORECAST_END} (forecast window, 98 days)")
 print(f"\nTrain shape: {snowflake_utils.shape_of_snowpark_df(train_set)}")
 print(f"Test  shape: {snowflake_utils.shape_of_snowpark_df(test_set)}")
 
@@ -301,6 +318,15 @@ if len(missing):
 print(f"Calendar continuous: {cal[time_col].min().date()} -> {cal[time_col].max().date()} "
       f"({len(cal)} days)")
 
+# the calendar is a FUTURE covariate: it must reach the last forecast date or
+# predict() will fail at the very end of the run, after training has completed
+_need = pd.Timestamp(FORECAST_END)
+if cal[time_col].max() < _need:
+    raise ValueError(
+        f"Calendar ends {cal[time_col].max().date()} but the forecast needs "
+        f"{_need.date()}. Extend {TABLE_NAME} before training."
+    )
+
 dt = cal[time_col].dt
 
 # --- cyclic encodings -------------------------------------------------------
@@ -351,6 +377,12 @@ roles = {
     "festive_covariates":  festive_covariates,
     "calendar_covariates": calendar_covariates,
     "future_covariates":   future_covariates,
+    "train_start":         TRAIN_START,
+    "train_end":           TRAIN_END,
+    "val_start":           VAL_START,
+    "val_end":             VAL_END,
+    "forecast_start":      FORECAST_START,
+    "forecast_end":        FORECAST_END,
     "time_col":            time_col,
     "group_col":           group_col,
     "target_col":          target_col,

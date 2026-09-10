@@ -111,12 +111,40 @@ warmup_days     = INPUT_CHUNK_LENGTH + OUTPUT_CHUNK_LENGTH - val_window_days
 warmup_start    = VAL_START - pd.Timedelta(days=warmup_days)
 MIN_LEN         = INPUT_CHUNK_LENGTH + OUTPUT_CHUNK_LENGTH
 
-print(f"Validation sample -> input : {warmup_start.date()} to "
-      f"{(warmup_start + pd.Timedelta(days=INPUT_CHUNK_LENGTH - 1)).date()}")
-print(f"Validation sample -> output: "
-      f"{(warmup_start + pd.Timedelta(days=INPUT_CHUNK_LENGTH)).date()} to {VAL_END.date()}")
+_val_in_end   = warmup_start + pd.Timedelta(days=INPUT_CHUNK_LENGTH - 1)
+_val_out_start = _val_in_end + pd.Timedelta(days=1)
+
+print("\n" + "=" * 60)
+print("DATE CONFIGURATION")
+print("=" * 60)
+print(f"TRAIN     : {TRAIN_START.date()} -> {TRAIN_END.date()}")
+print(f"VAL cfg   : {VAL_START.date()} -> {VAL_END.date()}  ({val_window_days} days)")
+print(f"FORECAST  : {FORECAST_START.date()} -> {FORECAST_END.date()}  ({TEST_HORIZON} days)")
+print(f"ICL / OCL : {INPUT_CHUNK_LENGTH} / {OUTPUT_CHUNK_LENGTH}  (MIN_LEN = {MIN_LEN})")
+print()
+print(f"Validation sample -> input : {warmup_start.date()} to {_val_in_end.date()}")
+print(f"Validation sample -> output: {_val_out_start.date()} to {VAL_END.date()}")
 print("NOTE: the scored output window is NOT VAL_START..VAL_END. VAL_START only")
 print("      sizes the warmup; it cancels out of the final window.")
+
+# --- diagnostic 1: overlap between the scored window and training ---------
+if _val_out_start <= TRAIN_END:
+    _ov = (min(TRAIN_END, VAL_END) - _val_out_start).days + 1
+    print(f"\nWARNING: {_ov} of {OUTPUT_CHUNK_LENGTH} scored days fall on or before "
+          f"TRAIN_END ({TRAIN_END.date()}).")
+    print("         That fraction of val_loss measures memorisation, not generalisation.")
+else:
+    print(f"\nOK: scored window starts {_val_out_start.date()}, after TRAIN_END "
+          f"({TRAIN_END.date()}). No overlap with training.")
+
+# --- diagnostic 2: does the scored window contain any festive days? -------
+if not (_val_out_start <= FORECAST_END and VAL_END >= FORECAST_START):
+    print("\nWARNING: the scored validation window contains NO days from the "
+          "festive period")
+    print(f"         ({FORECAST_START.date()} - {FORECAST_END.date()}). Early stopping and")
+    print("         checkpoint selection are therefore optimising for non-festive")
+    print("         trading. A model that flattens peaks scores well here.")
+    print("         See the remediation plan, Priority 1.")
 
 
 def safe_name(key):
@@ -636,10 +664,25 @@ print("=" * 60)
 # stated amount rather than by tuning a hidden loss term.
 NUM_SAMPLES = 200
 
+# History for the forecast must END on FORECAST_START - 1 (2026-08-31), so the
+# 365-day encoder window reads 2025-09-01 -> 2026-08-31. val_seq ends exactly
+# there, so it is the correct series to forecast from -- train_seq stops at
+# TRAIN_END and would leave a four-month gap before FORECAST_START.
+_hist_end = FORECAST_START - pd.Timedelta(days=1)
+print(f"Forecasting from history ending {_hist_end.date()}")
+print(f"Encoder window: {(FORECAST_START - pd.Timedelta(days=INPUT_CHUNK_LENGTH)).date()} "
+      f"-> {_hist_end.date()}")
+print(f"Series forecast: {len(val_keys):,} (those with a complete val strip)")
+
+if len(val_keys) < len(series_keys):
+    print(f"NOTE: {len(series_keys) - len(val_keys):,} series lack a full "
+          f"{MIN_LEN}-day val strip and are not forecast here.")
+    print("      They need a separate shorter-history treatment.")
+
 preds = model.predict(
     n=TEST_HORIZON,
-    series=train_seq,
-    future_covariates=train_cov_seq,
+    series=val_seq,
+    future_covariates=val_cov_seq,
     num_samples=NUM_SAMPLES,
     verbose=True,
 )
@@ -648,7 +691,7 @@ OUT_DIR = os.path.join(os.getcwd(), "predictions_2026")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 rows = []
-for key, p in zip(series_keys, preds):
+for key, p in zip(val_keys, preds):
     mean_vals = p.values(copy=False).mean(axis=-1).ravel()
     q60_vals  = p.quantile(0.60).values(copy=False).ravel()
     rows.append(pd.DataFrame({
