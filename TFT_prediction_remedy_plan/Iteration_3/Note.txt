@@ -1,0 +1,2 @@
+(base) PS C:\Users\G0004878\Desktop\TFT_Data\Daily_forecasting_model\Iterations in September\_Iteration_#3_feature_engineering\Modelling>                         python tensorboard --logdir=./tb_logs --port=6006
+C:\Users\G0004878\AppData\Local\miniconda3\python.exe: can't open file 'C:\\Users\\G0004878\\Desktop\\TFT_Data\\Daily_forecasting_model\\Iterations in September\\_Iteration_#3_feature_engineering\\Modelling\\tensorboard': [Errno 2] No such file or directory
