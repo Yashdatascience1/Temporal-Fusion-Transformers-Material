@@ -1,0 +1,27 @@
+#####---Filtering for Series A-----#####
+(1) TRAIN_DURATION : Apr 1st, 2023 to May 15th, 2026
+(2) VAL_DURATION : May 16th, 2025 to Aug 31st, 2026
+(3) No Series for which first sale date is after May 15th, 2026 will be included.
+(4) Table with Invalid series - MOP_DATABASE.SOQ.INVALID_SERIES_FOR_DAILY_MODELLING
+(5) Table with Valid series - MOP_DATABASE.SOQ.VALID_SERIES_FOR_DAILY_MODELLING
+(6) Count of all series for which there are no sales before May 15th, 2026 - 104055
+(7) Count of valid series (comprising of on an average ~86% of sales across 2023 through 2026) - 31931 : MOP_DATABASE.SOQ.VALID_SERIES_FOR_DAILY_MODELLING
+(8) Count of invalid series - 72124 : MOP_DATABASE.SOQ.INVALID_SERIES_FOR_DAILY_MODELLING
+
+
+CALL MOP_DATABASE.SOQ.DAILY_DATA_PREPARATION_WITH_FESTIVE_SIGNAL_WINDOWS(
+    START_DATE                => '2023-04-01',
+    END_DATE                  => '2026-12-07',
+    TRAIN_START_DATE          => '2023-04-01',
+    TRAIN_END_DATE            => '2026-05-01',
+    MAX_DATE                  => '2027-04-01',
+    CUSTOMER_TYPE_TO_CONSIDER => ARRAY_CONSTRUCT('Individual'),
+    USE_SELECTED_MODELS_ONLY  => TRUE,
+    OUTPUT_TABLE              => 'MOP_DATABASE.SOQ.DAILY_DATA_WITH_FESTIVE_FEATURES',
+    LOG_STAGE_PATH            => '@MOP_DATABASE.SOQ.PIPELINE_LOGS/daily_data_preparation_script.txt'
+);
+
+
+
+
+
