@@ -69,3 +69,17 @@ def accuracy_metrics(df):
         F.sum("SKU_PREDICTION").alias("PREDICTED"),
         F.avg("APE").alias("MAPE"),
         (F.sum("ABS_ERROR") / F.sum("NET_SALES")).alias("WAPE"),
+        (F.sum("SKU_PREDICTION") / F.sum("NET_SALES") - F.lit(1)).alias("BIAS"),
+    )
+
+by_category = accuracy_metrics(comp.group_by("ABC_CATEGORY"))
+overall = accuracy_metrics(comp).with_column("ABC_CATEGORY", F.lit("ALL"))
+
+accuracy = by_category.union_all_by_name(overall).with_column(
+    "ACCURACY_1_MINUS_MAPE", F.greatest(F.lit(0), F.lit(1) - F.col("MAPE"))
+).with_column(
+    "ACCURACY_1_MINUS_WAPE", F.greatest(F.lit(0), F.lit(1) - F.col("WAPE"))
+).sort("ABC_CATEGORY")
+
+accuracy.show()
+accuracy_pd = accuracy.to_pandas()   # optional: for pandas / Excel export
