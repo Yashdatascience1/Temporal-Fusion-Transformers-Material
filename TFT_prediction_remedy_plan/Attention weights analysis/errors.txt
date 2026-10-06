@@ -1,53 +1,37 @@
-tm = ctx.model.model
-print("static vars     :", len(tm.static_variables), tm.static_variables)
-print("categorical     :", getattr(tm, "categorical_static_variables", None))
-print("numeric         :", getattr(tm, "numeric_static_variables", None))
-
-static vars     : 10 ['static_covariate_0', 'static_covariate_1', 'static_covariate_2', 'static_covariate_3', 'static_covariate_4', 'static_covariate_5', 'static_covariate_6', 'static_covariate_7', 'static_covariate_8', 'static_covariate_9']
-categorical     : []
-numeric         : ['static_covariate_0', 'static_covariate_1', 'static_covariate_2', 'static_covariate_3', 'static_covariate_4', 'static_covariate_5', 'static_covariate_6', 'static_covariate_7', 'static_covariate_8', 'static_covariate_9']
-
-----------------------------
-
-labels = ctx.labels()
-idx = stratified_indices(labels, n_per_group=100)
-out = extract_tft_interpretation(
-    ctx.model, ctx.val_seq, future_covariates=ctx.val_cov_seq,
-    indices=idx, group_labels=labels, target_names=[ctx.target_col],
-    future_names=ctx.future_covariates, static_names=ctx.static_covariates,
-)
-print(out["ALL"]["n_series"])
-
-
-Using bfloat16 Automatic Mixed Precision (AMP)
-GPU available: True (cuda), used: True
-TPU available: False, using: 0 TPU cores
-HPU available: False, using: 0 HPUs
-LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
-[encoder] raw variable names (59): ['target_0', 'future_covariate_0', 'future_covariate_1', 'future_covariate_2', 'future_covariate_3', 'future_covariate_4'] ...
-[decoder] raw variable names (58): ['future_covariate_0', 'future_covariate_1', 'future_covariate_2', 'future_covariate_3', 'future_covariate_4', 'future_covariate_5'] ...
-[static] raw variable names (10): ['static_covariate_0', 'static_covariate_1', 'static_covariate_2', 'static_covariate_3', 'static_covariate_4', 'static_covariate_5'] ...
-c:\Users\G0004878\Desktop\Virtual_environments\darts_gpu\lib\site-packages\pytorch_lightning\trainer\connectors\data_connector.py:425: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=19` in the `DataLoader` to improve performance.
-
---------------------------------------------
-
-import pandas as pd
-
-sc = ctx.shared_cov
-cov = pd.DataFrame(sc.values(), index=sc.time_index, columns=sc.components).loc["2026-09-01":"2026-12-07"]
-assert len(cov) == 98, len(cov)          # must equal the 98 decoder steps
-
-dt = out["ALL"]["decoder_time"]
-for v in ["D-2", "N+3", "D", "IS_MONTH_START"]:
-    a = (cov[v] != 0).to_numpy()
-    print(f"{v:15s} active: {dt[v].to_numpy()[a].mean():.3f}   zero: {dt[v].to_numpy()[~a].mean():.3f}")
+idx2 = stratified_indices(labels, n_per_group=100, seed=1)
+out2 = extract_tft_interpretation(ctx.model, ctx.val_seq, future_covariates=ctx.val_cov_seq,
+        indices=idx2, group_labels=labels, target_names=[ctx.target_col],
+        future_names=ctx.future_covariates, static_names=ctx.static_covariates)
+a = out["ALL"]["decoder_importance"]; b = out2["ALL"]["decoder_importance"].reindex(a.index)
+print(pd.concat([a.rename("sample0"), b.rename("sample1")], axis=1).head(10))
+print("rank correlation:", a.rank().corr(b.rank()))
 
 returned 
 
-D-2             active: 0.176   zero: 0.104
-N+3             active: 0.135   zero: 0.054
-D               active: 0.204   zero: 0.047
-IS_MONTH_START  active: 0.014   zero: 0.040
+                 sample0   sample1
+D-2             0.104348  0.105666
+DOW_SIN         0.066087  0.065192
+N+3             0.054874  0.053779
+D               0.048385  0.049587
+IS_MONTH_START  0.036915  0.036397
+N+9             0.034423  0.034147
+D-3             0.033273  0.033018
+D+3             0.032956  0.032917
+IS_MONTH_END    0.028953  0.028223
+AKSHYA_TRITIYA  0.027473  0.028119
+rank correlation: 0.998400442954259
 
 
+----------------------------------------
 
+fam = "XOOM"
+idx_f = [i for i in idx if labels[i] == fam]
+solo = extract_tft_interpretation(ctx.model, ctx.val_seq, future_covariates=ctx.val_cov_seq,
+        indices=idx_f, group_labels=labels, target_names=[ctx.target_col],
+        future_names=ctx.future_covariates, static_names=ctx.static_covariates)
+s = solo["ALL"]["decoder_importance"]
+print("max abs difference:", (s - out[fam]["decoder_importance"].reindex(s.index)).abs().max())
+
+returned 
+
+max abs difference: 2.5446013907082232e-09
