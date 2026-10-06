@@ -1,18 +1,13 @@
-   import torch, pandas as pd
+import os, torch
+from darts.models import TFTModel
 
-   st = pd.concat(ctx.val_statics, ignore_index=True)     # raw static values, one row per series
-   emb = [(n, m.num_embeddings) for n, m in ctx.model.model.named_modules()
-          if isinstance(m, torch.nn.Embedding)]
-   rows = [r for _, r in emb]
-   print(pd.DataFrame({
-       "column": st.columns,
-       "categories_in_data": st.nunique().values,
-       "embedding_rows": rows[:len(st.columns)] + [None] * (len(st.columns) - len(rows)),
-   }))
-
-     import glob, pandas as pd
-  root = r"C:\Users\G0004878\Desktop\TFT_Data\Daily_forecasting_model\Iterations in September"
-  for f in glob.glob(root + r"\**\series_cache\static_covariates.parquet", recursive=True):
-      d = pd.read_parquet(f)
-      print(f, "| series:", len(d))
-      print(d.astype(str).nunique().to_dict(), "\n")
+logs = os.path.join(r"<Modelling_code folder>", "darts_logs")
+target = [1189, 14, 14, 3, 3, 5, 32, 868, 5, 7, 2]       # current data categories + 1, in column order
+print("target:", target, "\n")
+for name in sorted(os.listdir(logs)):
+    try:
+        m = TFTModel.load_from_checkpoint(model_name=name, work_dir=logs, best=True, map_location="cpu")
+        rows = [e.num_embeddings for e in m.model.modules() if isinstance(e, torch.nn.Embedding)]
+        print(name, rows, "<-- MATCH" if rows == target else "")
+    except Exception as e:
+        print(name, "could not load:", type(e).__name__)
