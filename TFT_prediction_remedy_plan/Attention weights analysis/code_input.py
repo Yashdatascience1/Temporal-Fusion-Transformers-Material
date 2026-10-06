@@ -12,7 +12,12 @@ out = extract_tft_interpretation(
 )
 print(out["ALL"]["n_series"])
 
-cov = ctx.shared_cov.pd_dataframe().loc["2026-09-01":"2026-12-07"]
+import pandas as pd
+
+sc = ctx.shared_cov
+cov = pd.DataFrame(sc.values(), index=sc.time_index, columns=sc.components).loc["2026-09-01":"2026-12-07"]
+assert len(cov) == 98, len(cov)          # must equal the 98 decoder steps
+
 dt = out["ALL"]["decoder_time"]
 for v in ["D-2", "N+3", "D", "IS_MONTH_START"]:
     a = (cov[v] != 0).to_numpy()
