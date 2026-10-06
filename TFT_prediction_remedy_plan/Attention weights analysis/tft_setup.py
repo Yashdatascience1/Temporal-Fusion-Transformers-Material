@@ -178,7 +178,7 @@ def load_everything(model_name, base_dir, work_dir,
 
     # ---- model ---------------------------------------------------------------------
     model = TFTModel.load_from_checkpoint(
-        model_name=model_name, work_dir=work_dir, best=best, map_location=map_location
+        model_name=model_name, work_dir=logs_dir, best=best, map_location=map_location
     )
     icl, ocl = model.input_chunk_length, model.output_chunk_length
 
