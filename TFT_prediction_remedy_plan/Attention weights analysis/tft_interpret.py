@@ -127,6 +127,7 @@ def extract_tft_interpretation(
     static_names=None,
     batch_size=None,
     verbose=True,
+    accelerator=None,
 ):
     """
     series / future_covariates : any Sequence of TimeSeries (your lazy sequences work).
@@ -199,6 +200,14 @@ def extract_tft_interpretation(
         tm.multihead_attn.register_forward_hook(attn_hook),
     ]
 
+    # accelerator="cpu" gives a readable IndexError instead of an opaque CUDA assert
+    trainer = None
+    if accelerator is not None:
+        import pytorch_lightning as pl
+        trainer = pl.Trainer(accelerator=accelerator, devices=1, logger=False,
+                             enable_checkpointing=False, enable_model_summary=False,
+                             enable_progress_bar=verbose)
+
     try:
         sub_series = [series[i] for i in indices]
         sub_future = None if future_covariates is None else [future_covariates[i] for i in indices]
@@ -211,6 +220,7 @@ def extract_tft_interpretation(
             num_samples=1,          # weights do not depend on sampling; 1 keeps it fast
             batch_size=batch_size,
             verbose=verbose,
+            trainer=trainer,
         )
     finally:
         for h in handles:
@@ -310,6 +320,35 @@ def plot_var_time(df: pd.DataFrame, top=15, title="Variable weight over time", s
     if save_path:
         fig.savefig(save_path, dpi=150)
     return fig
+
+
+def check_static_indices(model, series, indices=None, max_series=2000):
+    """
+    Pre-flight check for 'CUDA device-side assert' errors: compares the integer codes in each
+    series' static covariates against the embedding table sizes stored in the checkpoint.
+    Any column with min < 0 or max >= num_embeddings will crash an embedding lookup.
+    Assumes embedding tables appear in the same order as the static columns (check the printout).
+    """
+    indices = list(range(len(series))) if indices is None else list(indices)
+    indices = indices[:max_series]
+    rows = [series[i].static_covariates.iloc[[0]] for i in indices]
+    sc = pd.concat(rows, ignore_index=True)
+
+    emb = [(n, m.num_embeddings) for n, m in model.model.named_modules()
+           if isinstance(m, torch.nn.Embedding)]
+    print(f"{len(emb)} embedding tables in checkpoint; {sc.shape[1]} static columns in data\n")
+    bad = False
+    for pos, col in enumerate(sc.columns):
+        lo, hi = float(sc[col].min()), float(sc[col].max())
+        size = emb[pos][1] if pos < len(emb) else None
+        flag = ""
+        if size is not None and (lo < 0 or hi >= size):
+            flag, bad = "   <-- OUT OF RANGE", True
+        print(f"{col:24s} min={lo:8.0f} max={hi:8.0f}  embedding rows={size}{flag}")
+    if bad:
+        print("\nAt least one column would index outside its embedding table. The static "
+              "transformer / cache does not match this checkpoint.")
+    return sc
 
 
 def save_results(results, prefix="tft_interp"):
