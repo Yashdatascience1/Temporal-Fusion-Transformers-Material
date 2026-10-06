@@ -109,7 +109,7 @@ class SharedCovSequence(collections.abc.Sequence):
 
 def load_everything(model_name=MODEL_NAME, base_dir=BASE_DIR, work_dir=WORK_DIR,
                     drop_never_sold=DROP_NEVER_SOLD, dormant_days=DORMANT_DAYS,
-                    map_location="cpu", best=True):
+                    map_location="cpu", best=True, skip_dead_filter=False):
     cache_dir = os.path.join(base_dir, "series_cache")
 
     # ---- roles ---------------------------------------------------------------
@@ -128,7 +128,9 @@ def load_everything(model_name=MODEL_NAME, base_dir=BASE_DIR, work_dir=WORK_DIR,
     assert len(static_df) == len(series_keys), "static_covariates.parquet and manifest are out of sync"
 
     keep = []
-    for k in series_keys:
+    for n_done, k in enumerate(series_keys if not skip_dead_filter else []):
+        if n_done % 2000 == 0:
+            print(f"  dead-series filter: {n_done:,}/{len(series_keys):,}", flush=True)
         with np.load(os.path.join(cache_dir, f"{safe_name(k)}.npz")) as z:
             s = z["train_sales"]
         if drop_never_sold and s.sum() == 0:
@@ -137,7 +139,7 @@ def load_everything(model_name=MODEL_NAME, base_dir=BASE_DIR, work_dir=WORK_DIR,
             keep.append(False)
         else:
             keep.append(True)
-    keep = np.asarray(keep)
+    keep = np.ones(len(series_keys), dtype=bool) if skip_dead_filter else np.asarray(keep)
     series_keys = [k for k, m in zip(series_keys, keep) if m]
     has_val = [h for h, m in zip(has_val, keep) if m]
     static_df = static_df.loc[keep].reset_index(drop=True)[static_covariates].astype(str)
