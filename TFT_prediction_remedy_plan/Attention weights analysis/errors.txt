@@ -1,14 +1,53 @@
-static columns in data      : 10
-embedding tables in model   : 0
-[]
-               column  categories embedding_rows  expected_rows     ok
-0  PARENT_DEALER_CODE        1098           None           1099  False
-1        MODEL_FAMILY          13           None             14  False
-2          MODEL_NAME          13           None             14  False
-3          BRAKE_TYPE           2           None              3  False
-4       IGNITION_TYPE           2           None              3  False
-5          WHEEL_TYPE           4           None              5  False
-6              COLOUR          27           None             28  False
-7         DEALER_CITY         836           None            837  False
-8     X_CITY_CATEGORY           3           None              4  False
-9   ZONAL_OFFICE_NAME           5           None              6  False
+tm = ctx.model.model
+print("static vars     :", len(tm.static_variables), tm.static_variables)
+print("categorical     :", getattr(tm, "categorical_static_variables", None))
+print("numeric         :", getattr(tm, "numeric_static_variables", None))
+
+static vars     : 10 ['static_covariate_0', 'static_covariate_1', 'static_covariate_2', 'static_covariate_3', 'static_covariate_4', 'static_covariate_5', 'static_covariate_6', 'static_covariate_7', 'static_covariate_8', 'static_covariate_9']
+categorical     : []
+numeric         : ['static_covariate_0', 'static_covariate_1', 'static_covariate_2', 'static_covariate_3', 'static_covariate_4', 'static_covariate_5', 'static_covariate_6', 'static_covariate_7', 'static_covariate_8', 'static_covariate_9']
+
+----------------------------
+
+labels = ctx.labels()
+idx = stratified_indices(labels, n_per_group=100)
+out = extract_tft_interpretation(
+    ctx.model, ctx.val_seq, future_covariates=ctx.val_cov_seq,
+    indices=idx, group_labels=labels, target_names=[ctx.target_col],
+    future_names=ctx.future_covariates, static_names=ctx.static_covariates,
+)
+print(out["ALL"]["n_series"])
+
+
+Using bfloat16 Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+[encoder] raw variable names (59): ['target_0', 'future_covariate_0', 'future_covariate_1', 'future_covariate_2', 'future_covariate_3', 'future_covariate_4'] ...
+[decoder] raw variable names (58): ['future_covariate_0', 'future_covariate_1', 'future_covariate_2', 'future_covariate_3', 'future_covariate_4', 'future_covariate_5'] ...
+[static] raw variable names (10): ['static_covariate_0', 'static_covariate_1', 'static_covariate_2', 'static_covariate_3', 'static_covariate_4', 'static_covariate_5'] ...
+c:\Users\G0004878\Desktop\Virtual_environments\darts_gpu\lib\site-packages\pytorch_lightning\trainer\connectors\data_connector.py:425: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=19` in the `DataLoader` to improve performance.
+
+--------------------------------------------
+
+import pandas as pd
+
+sc = ctx.shared_cov
+cov = pd.DataFrame(sc.values(), index=sc.time_index, columns=sc.components).loc["2026-09-01":"2026-12-07"]
+assert len(cov) == 98, len(cov)          # must equal the 98 decoder steps
+
+dt = out["ALL"]["decoder_time"]
+for v in ["D-2", "N+3", "D", "IS_MONTH_START"]:
+    a = (cov[v] != 0).to_numpy()
+    print(f"{v:15s} active: {dt[v].to_numpy()[a].mean():.3f}   zero: {dt[v].to_numpy()[~a].mean():.3f}")
+
+returned 
+
+D-2             active: 0.176   zero: 0.104
+N+3             active: 0.135   zero: 0.054
+D               active: 0.204   zero: 0.047
+IS_MONTH_START  active: 0.014   zero: 0.040
+
+
+
