@@ -5,10 +5,11 @@ darts_logs/<model_name>/). No retraining, no Snowflake, no chunk parquet files.
 
 Notebook usage:
     from tft_setup import load_everything
-    ctx = load_everything(model_name="daily_tft_negbin_scooters_2026-09-10_18_02_22")
+    ctx = load_everything(model_name=..., base_dir=..., work_dir=...)   # all three are required
     # ctx.model, ctx.val_seq, ctx.val_cov_seq, ctx.val_statics, ctx.labels(...) etc.
 
-Script usage (edit the CONFIG block, then):  python tft_setup.py
+Script usage:
+    python tft_setup.py --model_name NAME --base_dir "C:\\path" --work_dir "C:\\path" [--skip_dead_filter]
 """
 from __future__ import annotations
 
@@ -25,9 +26,10 @@ from darts import TimeSeries
 from darts.models import TFTModel
 
 # ============================================================================= CONFIG
-MODEL_NAME = "daily_tft_negbin_scooters_2026-09-10_18_02_22"   # checkpoint folder under darts_logs/
-BASE_DIR = os.getcwd()          # folder holding column_roles.json, series_cache/, darts_logs/
-WORK_DIR = BASE_DIR             # parent of darts_logs/ (where the model was trained from)
+# model_name, base_dir and work_dir are NOT defined here. You pass them in:
+#   base_dir : folder holding column_roles.json and series_cache/
+#   work_dir : folder that CONTAINS darts_logs/ (not darts_logs itself)
+#   model_name : folder name under darts_logs/
 
 # These two MUST equal what the training run used (Section 2 of your notebook),
 # otherwise val_keys will not line up with static_covariates.parquet.
@@ -107,10 +109,26 @@ class SharedCovSequence(collections.abc.Sequence):
         return self.shared
 
 
-def load_everything(model_name=MODEL_NAME, base_dir=BASE_DIR, work_dir=WORK_DIR,
+def load_everything(model_name, base_dir, work_dir,
                     drop_never_sold=DROP_NEVER_SOLD, dormant_days=DORMANT_DAYS,
                     map_location="cpu", best=True, skip_dead_filter=False):
     cache_dir = os.path.join(base_dir, "series_cache")
+
+    # ---- fail early with a readable message if a path is wrong -----------------------
+    for label, p in (("base_dir", base_dir), ("series_cache", cache_dir),
+                     ("column_roles.json", os.path.join(base_dir, "column_roles.json"))):
+        if not os.path.exists(p):
+            raise FileNotFoundError(f"{label} not found: {p}")
+    logs_dir = os.path.join(work_dir, "darts_logs")
+    model_dir = os.path.join(logs_dir, model_name)
+    if not os.path.isdir(model_dir):
+        found = os.listdir(logs_dir) if os.path.isdir(logs_dir) else None
+        raise FileNotFoundError(
+            f"Model folder not found: {model_dir}\n"
+            f"darts_logs exists: {os.path.isdir(logs_dir)}; contents: {found}\n"
+            f"work_dir must be the folder that CONTAINS darts_logs."
+        )
+    print(f"model folder contents: {os.listdir(model_dir)}")
 
     # ---- roles ---------------------------------------------------------------
     with open(os.path.join(base_dir, "column_roles.json")) as f:
@@ -198,7 +216,16 @@ if __name__ == "__main__":
     from tft_interpret import (extract_tft_interpretation, plot_attention, plot_importance,
                                save_results, stratified_indices)
 
-    ctx = load_everything()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model_name", required=True)
+    ap.add_argument("--base_dir", required=True)
+    ap.add_argument("--work_dir", required=True)
+    ap.add_argument("--skip_dead_filter", action="store_true")
+    args = ap.parse_args()
+
+    ctx = load_everything(args.model_name, args.base_dir, args.work_dir,
+                          skip_dead_filter=args.skip_dead_filter)
     labels = ctx.labels()
     idx = stratified_indices(labels, n_per_group=N_PER_GROUP)
     print(f"Running on {len(idx):,} series across {len(set(labels))} groups")
