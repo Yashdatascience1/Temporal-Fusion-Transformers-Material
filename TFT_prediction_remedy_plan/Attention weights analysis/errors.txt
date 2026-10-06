@@ -1,41 +1,26 @@
-import torch
+import darts
 
-m = ctx.model
+print("Darts version:", darts.__version__)
 
-print("Model name:", m.model_name)
-print("Work directory:", m.work_dir)
 print(
-    "Saved embedding configuration:",
-    m.model_params.get("categorical_embedding_sizes"),
-)
-print(
-    "Categorical variables:",
-    m.model.categorical_static_variables,
-)
-print(
-    "Numeric variables:",
-    m.model.numeric_static_variables,
-)
-print(
-    "Actual embedding tables:",
-    [
-        (name, layer.num_embeddings, layer.embedding_dim)
-        for name, layer in m.model.named_modules()
-        if isinstance(layer, torch.nn.Embedding)
-    ],
-)
-print(
-    "Encoded static columns:",
-    ctx.val_seq[0].static_covariates.columns.tolist(),
+    "Wrapper embedding configuration:",
+    getattr(m, "categorical_embedding_sizes", None),
 )
 
+print(
+    "Network embedding configuration:",
+    getattr(m.model, "categorical_embedding_sizes", None),
+)
+
+saved_static = getattr(m, "static_covariates", None)
+print(
+    "Static columns stored on the fitted model:",
+    None if saved_static is None else saved_static.columns.tolist(),
+)
 returned
 
 
-Model name: daily_tft_negbin_scooters_2026-09-15_20_02_52
-Work directory: c:\Users\G0004878\Desktop\TFT_Data\Daily_forecasting_model\Iterations in September\_Iteration_#2_calendar_attributes\Modelling\darts_logs
-Saved embedding configuration: {'PARENT_DEALER_CODE': (1099, 50), 'MODEL_FAMILY': (14, 7), 'MODEL_NAME': (14, 7), 'BRAKE_TYPE': (3, 2), 'IGNITION_TYPE': (3, 2), 'WHEEL_TYPE': (5, 3), 'COLOUR': (28, 14), 'DEALER_CITY': (837, 50), 'X_CITY_CATEGORY': (4, 2), 'ZONAL_OFFICE_NAME': (6, 3)}
-Categorical variables: []
-Numeric variables: ['static_covariate_0', 'static_covariate_1', 'static_covariate_2', 'static_covariate_3', 'static_covariate_4', 'static_covariate_5', 'static_covariate_6', 'static_covariate_7', 'static_covariate_8', 'static_covariate_9']
-Actual embedding tables: []
-Encoded static columns: ['PARENT_DEALER_CODE', 'MODEL_FAMILY', 'MODEL_NAME', 'BRAKE_TYPE', 'IGNITION_TYPE', 'WHEEL_TYPE', 'COLOUR', 'DEALER_CITY', 'X_CITY_CATEGORY', 'ZONAL_OFFICE_NAME']
+Darts version: 0.40.0
+Wrapper embedding configuration: {}
+Network embedding configuration: {}
+Static columns stored on the fitted model: ['PARENT_DEALER_CODE', 'MODEL_FAMILY', 'MODEL_NAME', 'BRAKE_TYPE', 'IGNITION_TYPE', 'WHEEL_TYPE', 'COLOUR', 'DEALER_CITY', 'X_CITY_CATEGORY', 'ZONAL_OFFICE_NAME']
