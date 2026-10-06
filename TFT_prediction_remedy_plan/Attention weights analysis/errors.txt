@@ -1,3 +1,14 @@
-target: [1189, 14, 14, 3, 3, 5, 32, 868, 5, 7, 2] 
-
-daily_tft_negbin_scooters_2026-09-10_18_02_22 [1160, 14, 14, 3, 3, 5, 30, 864, 4, 6, 2] 
+static columns in data      : 10
+embedding tables in model   : 0
+[]
+               column  categories embedding_rows  expected_rows     ok
+0  PARENT_DEALER_CODE        1098           None           1099  False
+1        MODEL_FAMILY          13           None             14  False
+2          MODEL_NAME          13           None             14  False
+3          BRAKE_TYPE           2           None              3  False
+4       IGNITION_TYPE           2           None              3  False
+5          WHEEL_TYPE           4           None              5  False
+6              COLOUR          27           None             28  False
+7         DEALER_CITY         836           None            837  False
+8     X_CITY_CATEGORY           3           None              4  False
+9   ZONAL_OFFICE_NAME           5           None              6  False
