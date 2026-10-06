@@ -1,30 +1,19 @@
-import torch
+import darts
 
-m = ctx.model
+print("Darts version:", darts.__version__)
 
-print("Model name:", m.model_name)
-print("Work directory:", m.work_dir)
 print(
-    "Saved embedding configuration:",
-    m.model_params.get("categorical_embedding_sizes"),
+    "Wrapper embedding configuration:",
+    getattr(m, "categorical_embedding_sizes", None),
 )
+
 print(
-    "Categorical variables:",
-    m.model.categorical_static_variables,
+    "Network embedding configuration:",
+    getattr(m.model, "categorical_embedding_sizes", None),
 )
+
+saved_static = getattr(m, "static_covariates", None)
 print(
-    "Numeric variables:",
-    m.model.numeric_static_variables,
-)
-print(
-    "Actual embedding tables:",
-    [
-        (name, layer.num_embeddings, layer.embedding_dim)
-        for name, layer in m.model.named_modules()
-        if isinstance(layer, torch.nn.Embedding)
-    ],
-)
-print(
-    "Encoded static columns:",
-    ctx.val_seq[0].static_covariates.columns.tolist(),
+    "Static columns stored on the fitted model:",
+    None if saved_static is None else saved_static.columns.tolist(),
 )
