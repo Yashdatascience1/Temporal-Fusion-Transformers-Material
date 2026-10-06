@@ -1,2 +1,3 @@
-C:\Users\G0004878\Desktop\TFT_Data\Daily_forecasting_model\Iterations in September\_Iteration_#1_Modelling_after_research\Modelling_code\series_cache\static_covariates.parquet | series: 115940
-{'PARENT_DEALER_CODE': 1188, 'MODEL_FAMILY': 13, 'MODEL_NAME': 13, 'BRAKE_TYPE': 2, 'IGNITION_TYPE': 2, 'WHEEL_TYPE': 4, 'COLOUR': 31, 'DEALER_CITY': 867, 'X_CITY_CATEGORY': 4, 'ZONAL_OFFICE_NAME': 6, 'DATASET_TYPE': 1} 
+target: [1189, 14, 14, 3, 3, 5, 32, 868, 5, 7, 2] 
+
+daily_tft_negbin_scooters_2026-09-10_18_02_22 [1160, 14, 14, 3, 3, 5, 30, 864, 4, 6, 2] 
