@@ -9,3 +9,10 @@
        "categories_in_data": st.nunique().values,
        "embedding_rows": rows[:len(st.columns)] + [None] * (len(st.columns) - len(rows)),
    }))
+
+     import glob, pandas as pd
+  root = r"C:\Users\G0004878\Desktop\TFT_Data\Daily_forecasting_model\Iterations in September"
+  for f in glob.glob(root + r"\**\series_cache\static_covariates.parquet", recursive=True):
+      d = pd.read_parquet(f)
+      print(f, "| series:", len(d))
+      print(d.astype(str).nunique().to_dict(), "\n")
