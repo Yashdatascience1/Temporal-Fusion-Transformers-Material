@@ -1,12 +1,2 @@
-                column  categories_in_data  embedding_rows
-0   PARENT_DEALER_CODE                1188            1160
-1         MODEL_FAMILY                  13              14
-2           MODEL_NAME                  13              14
-3           BRAKE_TYPE                   2               3
-4        IGNITION_TYPE                   2               3
-5           WHEEL_TYPE                   4               5
-6               COLOUR                  31              30
-7          DEALER_CITY                 867             864
-8      X_CITY_CATEGORY                   4               4
-9    ZONAL_OFFICE_NAME                   6               6
-10        DATASET_TYPE                   1               2
+C:\Users\G0004878\Desktop\TFT_Data\Daily_forecasting_model\Iterations in September\_Iteration_#1_Modelling_after_research\Modelling_code\series_cache\static_covariates.parquet | series: 115940
+{'PARENT_DEALER_CODE': 1188, 'MODEL_FAMILY': 13, 'MODEL_NAME': 13, 'BRAKE_TYPE': 2, 'IGNITION_TYPE': 2, 'WHEEL_TYPE': 4, 'COLOUR': 31, 'DEALER_CITY': 867, 'X_CITY_CATEGORY': 4, 'ZONAL_OFFICE_NAME': 6, 'DATASET_TYPE': 1} 
