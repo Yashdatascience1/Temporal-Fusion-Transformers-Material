@@ -6,3 +6,14 @@ Notes: 20 records invalid: 180 below minimum, 20 above maximum
 Test Case: FINAL_B2G <= MinTrucks.UNITS_TO_BE_DISPATCHED <= Dispatchable.MAX_QTY  
 Status: FAIL  
 Notes: 20 records invalid: 225 below minimum, 20 above maximum  
+
+
+
+keys = ['DEALER','SKU','PLANT']
+d = dataframes['Dispatchable']
+print("dup keys in Dispatchable:", d.duplicated(keys).sum())
+u = dataframes['MinTrucks'].groupby(keys, as_index=False)['UNITS_TO_BE_DISPATCHED'].sum()
+m = u.merge(d[keys+['FINAL_B2G','MAX_QTY','B2G']], on=keys, how='left')
+bad = m[m.UNITS_TO_BE_DISPATCHED > m.MAX_QTY.fillna(0)]
+print(len(bad), (bad.MAX_QTY < bad.FINAL_B2G).sum(), (bad.FINAL_B2G > bad.B2G).sum(), bad.MAX_QTY.isna().sum())
+print(bad.head(20))
