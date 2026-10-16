@@ -237,3 +237,31 @@ Notes: 10 records invalid: 223 below minimum, 10 above maximum
 ----------------------------------------------------------------------------------------------------  
 Overall Validation Status: FAIL
 
+
+---------------------------------
+
+keys = ['DEALER','SKU','PLANT']
+d = dataframes['Dispatchable']
+dk = d[d.duplicated(keys, keep=False)]
+print("dup keys left:", d.duplicated(keys).sum(), "| groups:", dk.groupby(keys).ngroups)
+varying = [c for c in d.columns if c not in keys and dk.groupby(keys)[c].apply(lambda s: s.astype(str).nunique()>1).any()]
+print("columns that differ inside duplicate groups:", varying)
+print(dk.sort_values(keys)[keys+varying[:8]].head(20).to_string())
+
+# do the quantity failures sit on the duplicate keys?
+mop = dataframes['SourceMop'].groupby(keys)['QUANTITY'].sum().rename('MOP')
+q = d.groupby(keys)['QUANTITY'].sum().rename('DISP').reset_index().merge(mop.reset_index(), on=keys, how='left')
+badq = q[q.DISP != q.MOP]
+print(badq.merge(dk[keys].drop_duplicates().assign(is_dup=1), on=keys, how='left'))
+
+# production stock mismatches: both sources side by side
+cell4_src = session.sql("""select PLANT, SKU, SUM(Plan) TODAY_PRODUCTION_STOCK from (
+  select CASE WHEN ZLINE LIKE '1%' THEN 'HHHD' WHEN ZLINE LIKE '2%' THEN 'HHHG' WHEN ZLINE LIKE '3%' THEN 'HHHU'
+  WHEN ZLINE LIKE '4%' THEN 'HM4N' WHEN ZLINE LIKE '5%' THEN 'HM5V' WHEN ZLINE LIKE '6%' THEN 'HM6C' END PLANT, Plan, MCODE SKU
+  from (select A.ZLINE, A.Plan, B.MCODE from (select ZLINE, MODEL_KEY, sum(ZQTY) Plan
+  from ANALYTICS_DATABASE.ANALYTICS_OPERATION.PRD_PLAN_F_FUTURE_DATA where DATE_KEY = TO_CHAR(CURRENT_DATE,'yyyymmdd')
+  group by ZLINE, MODEL_KEY) A left join (select KEY, MCODE from ANALYTICS_DATABASE.ANALYTICS_SALES.MODEL_D) B
+  on A.MODEL_KEY = B.KEY)) group by 1,2""").to_pandas()
+v = dataframes['SourcePlantProd'].rename(columns={'TODAY_PRODUCTION_STOCK':'VALIDATOR_SRC'})
+c = cell4_src.merge(v, on=['PLANT','SKU'], how='outer').fillna(0)
+print(c[c.TODAY_PRODUCTION_STOCK != c.VALIDATOR_SRC].head(20))
