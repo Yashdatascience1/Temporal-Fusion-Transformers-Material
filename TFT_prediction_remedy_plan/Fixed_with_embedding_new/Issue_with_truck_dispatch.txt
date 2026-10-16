@@ -187,3 +187,53 @@ AREA_OFFICE                                      Area Office - Jaipur  ...      
 ZONE                                           Zonal Office - Central  ...                       Zonal Office - Central  
 IS_OBD                                                              Y  ...                                            Y  
 [74 rows x 8 columns]
+
+
+---------------------------------------------------------------------------------------------------------------
+
+after running this - I got this
+
+Data Relationship Validation Summary:  
+====================================================================================================  
+Test Case: Dispatchable.QUANTITY_DISPATCHED == SourceDispatch.QUANTITY_DISPATCHED  
+Status: FAIL  
+Notes: 1 records invalid  
+----------------------------------------------------------------------------------------------------  
+Test Case: Dispatchable.TOTAL_OPEN_ORDER_QTY == SourceOpenOrder.TOTAL_OPEN_ORDER_QTY  
+Status: PASS  
+Notes: All records valid  
+----------------------------------------------------------------------------------------------------  
+Test Case: Dispatchable.AVAILABLE_PLANT_STOCK == SourcePlantInv.AVAILABLE_PLANT_STOCK  
+Status: PASS  
+Notes: All records valid  
+----------------------------------------------------------------------------------------------------  
+Test Case: Dispatchable.TODAY_PRODUCTION_STOCK == SourcePlantInv.TODAY_PRODUCTION_STOCK  
+Status: FAIL  
+Notes: 5 records invalid  
+----------------------------------------------------------------------------------------------------  
+Test Case: DealerSKU.TOTAL_OPEN_ORDER_QTY == SourceOpenOrder.TOTAL_OPEN_ORDER_QTY  
+Status: PASS  
+Notes: All records valid  
+----------------------------------------------------------------------------------------------------  
+Test Case: DealerSKU.TOTAL_DISPATCH == SourceDispatch.QUANTITY_DISPATCHED  
+Status: PASS  
+Notes: All records valid  
+----------------------------------------------------------------------------------------------------  
+Test Case: AllTrucks.UNITS_TO_BE_DISPATCHED <= InvSnapshot.EOD_AVAILABLE_QUANTITY  
+Status: PASS  
+Notes: All records valid  
+----------------------------------------------------------------------------------------------------  
+Test Case: SourceMop.QUANTITY == Dispatchable.QUANTITY  
+Status: FAIL  
+Notes: 4 records invalid  
+----------------------------------------------------------------------------------------------------  
+Test Case: FINAL_B2G <= AllTrucks.UNITS_TO_BE_DISPATCHED <= Dispatchable.MAX_QTY  
+Status: FAIL  
+Notes: 10 records invalid: 178 below minimum, 10 above maximum  
+----------------------------------------------------------------------------------------------------  
+Test Case: FINAL_B2G <= MinTrucks.UNITS_TO_BE_DISPATCHED <= Dispatchable.MAX_QTY  
+Status: FAIL  
+Notes: 10 records invalid: 223 below minimum, 10 above maximum  
+----------------------------------------------------------------------------------------------------  
+Overall Validation Status: FAIL
+
