@@ -319,3 +319,9 @@ PLANT             SKU  TODAY_PRODUCTION_STOCK  VALIDATOR_SRC
 23  HHHD  HGLATDRSCFIBSR                     0.0          100.0  
 24  HHHD  HGLATDRSCFITBK                     0.0          100.0
 --------------------------------------------------------------
+
+
+safety_stock = (safety_stock
+    .sort_values(['DEALER','SKU','SAFETY_STOCK','SAFETY_STOCK_DAYS'], ascending=[True,True,False,False])
+    .drop_duplicates(['DEALER','SKU'], keep='first'))
+
