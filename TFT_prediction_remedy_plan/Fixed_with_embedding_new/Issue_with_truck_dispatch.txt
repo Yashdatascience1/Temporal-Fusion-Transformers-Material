@@ -18,7 +18,7 @@ bad = m[m.UNITS_TO_BE_DISPATCHED > m.MAX_QTY.fillna(0)]
 print(len(bad), (bad.MAX_QTY < bad.FINAL_B2G).sum(), (bad.FINAL_B2G > bad.B2G).sum(), bad.MAX_QTY.isna().sum())
 print(bad.head(20))
 
-
+returned
 ------
 
 dup keys in Dispatchable: 24  
@@ -44,3 +44,9 @@ dup keys in Dispatchable: 24
 665  11707  HDESHDRLMFIMNB  HHHG  ...        3.0      3.0  5.0  
 666  11707  HDESHDRLMFIMNB  HHHG  ...        3.0      3.0  5.0  
 667  11707  HDESHDRLMFIMNB  HHHG  ...        3.0      3.0  5.0  
+
+-------------
+
+print(session.sql("SELECT MODEL, COUNT(*) N FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.MODEL_LOAD_SIZE GROUP BY 1 HAVING COUNT(*)>1").to_pandas())
+print(d[d.duplicated(keys, keep=False)].sort_values(keys)[keys+['MODEL','LOAD_SIZE_MULTIPLES','FINAL_B2G','MAX_QTY']].head(24))
+
