@@ -1,0 +1,8 @@
+----------------------------------------------------------------------------------------------------  
+Test Case: FINAL_B2G <= AllTrucks.UNITS_TO_BE_DISPATCHED <= Dispatchable.MAX_QTY  
+Status: FAIL  
+Notes: 20 records invalid: 180 below minimum, 20 above maximum  
+----------------------------------------------------------------------------------------------------  
+Test Case: FINAL_B2G <= MinTrucks.UNITS_TO_BE_DISPATCHED <= Dispatchable.MAX_QTY  
+Status: FAIL  
+Notes: 20 records invalid: 225 below minimum, 20 above maximum  
