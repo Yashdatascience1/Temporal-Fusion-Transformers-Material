@@ -147,3 +147,43 @@ s = session.sql("""SELECT * FROM MOP_DATABASE.SOQ.SOQ_DATA_FINAL_VERSION_WITH_AO
       AND SERVICE_LEVEL=80 AND run_version=57 AND PARENT_DEALER_CODE='11594'
       AND SKU IN ('HXTRPASSCFIABO','HXTRPSSSCFIABO')""").to_pandas()
 print(s.T)
+
+
+returned
+
+0   ...                              19  
+PLANNING_MONTH                                                     2026-10-01  ...                      2026-10-01  
+PARENT_DEALER_CODE                                                      10109  ...                           10271  
+SKU                                                            HPLNCDRVCFIMBK  ...                  HGLATDSSCFIBSR  
+MODEL_FAMILY                                                        PLEASURE+  ...                         GLAMOUR  
+SKU_UNIQUE_FAMILY_CODE                     PLEASURE+<>DRUM<>SELF<>CAST<>BLACK  ...  GLAMOUR<>DISC<>SELF<>CAST<>RED  
+MODEL                                                               PLEASURE+  ...                         GLAMOUR  
+MODEL_FAMILY_UNIQUE_FAMILY_CODE            PLEASURE+<>DRUM<>SELF<>CAST<>BLACK  ...  GLAMOUR<>DISC<>SELF<>CAST<>RED  
+VARIANT                                                           HPLNCDRVCFI  ...                     HGLATDSSCFI  
+ABC                                                            A 45,B 30,C 20  ...                  A 45,B 30,C 20  
+SAFETY_STOCK_DAYS                                                          30  ...                              20  
+ORIGINAL_SOQ_ABC                                                            B  ...                               C  
+PREDICTED_SALES_SKU                                                       1.0  ...                             0.0  
+TOTAL_DEALER_PREDICTED_SALES_SKU                                       1346.0  ...                           671.0  
+PREDICTED_SALES_SKU_PERCENTAGE                                       0.000743  ...                             0.0  
+CUMULATIVE_PREDICTED_SALES_SKU_PERCENTAGE                            0.997771  ...                             1.0  
+SOQ_ABC_SKU                                                                 C  ...                               C  
+DEALER_TOTAL_SALES                                                     1624.0  ...                             0.0  
+DEALER_SKU_SALES                                                          3.0  ...                             0.0  
+DEALER_SKU_RETAIL_PERCENTAGE                                         0.001847  ...                             0.0  
+DEALER_SKU_RETAIL_CUMMULATIVE_PERCENTAGE                             0.964901  ...                             1.0  
+FINAL_ABC_END                                                               C  ...                               C  
+[21 rows x 20 columns]  
+                                                                    0  ...                                            7  
+DATES                                             2026-10-01 00:00:00  ...                          2026-10-01 00:00:00  
+SERIES                    "11594_XTREME 125_DISC<>SELF<>CAST<>ORANGE"  ...  "11594_XTREME 125_DISC<>SELF<>CAST<>ORANGE"  
+PREDICTED_SALES                                              2.245171  ...                                     2.245171  
+PARENT_DEALER_CODE                                              11594  ...                                        11594  
+MODEL_FAMILY_x                                             XTREME 125  ...                                   XTREME 125  
+...                                                               ...  ...                                          ...  
+RECOMMEND_END_OF_JOURNEY                                        False  ...                                        False  
+RUN_VERSION                                                        57  ...                                           57  
+AREA_OFFICE                                      Area Office - Jaipur  ...                         Area Office - Jaipur  
+ZONE                                           Zonal Office - Central  ...                       Zonal Office - Central  
+IS_OBD                                                              Y  ...                                            Y  
+[74 rows x 8 columns]
