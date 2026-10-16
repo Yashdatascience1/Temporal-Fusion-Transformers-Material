@@ -248,11 +248,40 @@ varying = [c for c in d.columns if c not in keys and dk.groupby(keys)[c].apply(l
 print("columns that differ inside duplicate groups:", varying)
 print(dk.sort_values(keys)[keys+varying[:8]].head(20).to_string())
 
+returned 
+
+dup keys left: 10 | groups: 4  
+columns that differ inside duplicate groups: ['SAFETY_STOCK', 'REORDER_LEVEL', 'REORDER_URGENCY_SCORE', 'Daily_Reorder_level_urgency', 'URGENCY_RANK', 'MODIFIED_REORDER_URGENCY_SCORE', 'MODIFIED_REORDER_URGENCY_SCORE_PLANT_PROPORTION', 'B2G_URGENCY_SCORE', 'NORMALISED_B2G_URGENCY_SCORE', 'PRIORITY_RANK_OVERALL', 'PRORITY_RANK_PLANT_WISE']  
+    DEALER             SKU PLANT  SAFETY_STOCK  REORDER_LEVEL  REORDER_URGENCY_SCORE  Daily_Reorder_level_urgency  URGENCY_RANK  MODIFIED_REORDER_URGENCY_SCORE  MODIFIED_REORDER_URGENCY_SCORE_PLANT_PROPORTION  B2G_URGENCY_SCORE  
+311  11594  HXTRPASSCFIABO  HHHG           3.0            4.0                  1.222                        1.270          5811                         0.63500                                          0.01793            0.05241  
+333  11594  HXTRPASSCFIABO  HHHG           2.0            3.0                  1.001                        1.050          6798                         0.52500                                          0.01482            0.04930  
+400  11594  HXTRPASSCFIABO  HHHG           0.0            1.0                  0.368                        0.406         12897                         0.20300                                          0.00573            0.04021  
+401  11594  HXTRPASSCFIABO  HHHG           0.0            1.0                  0.368                        0.406         12898                         0.20300                                          0.00573            0.04021  
+319  11594  HXTRPSSSCFIABO  HHHG           3.0            4.0                  0.450                        0.532         11950                         0.28757                                          0.00523            0.05153  
+324  11594  HXTRPSSSCFIABO  HHHG           2.0            3.0                  0.287                        0.354         14199                         0.19857                                          0.00361            0.04991  
+225  11707  HDESHDRLMFIMNB  HHHG           1.0            2.0                  2.001                        2.276          1660                         1.13800                                          0.02018            0.08685  
+226  11707  HDESHDRLMFIMNB  HHHG           1.0            2.0                  2.001                        2.276          1661                         1.13800                                          0.02018            0.08685  
+227  11707  HDESHDRLMFIMNB  HHHG           0.0            1.0                  1.694                        2.055          3172                         1.02750                                          0.01822            0.08489  
+228  11707  HDESHDRLMFIMNB  HHHG           0.0            1.0                  1.694                        2.055          3173                         1.02750                                          0.01822            0.08489  
+284  11707  HDESHDRLMFINRD  HHHG           2.0            3.0                  2.149                        2.368          1296                         1.18400                                          0.01797            0.05719  
+288  11707  HDESHDRLMFINRD  HHHG           1.0            2.0                  1.977                        2.250          1721                         1.12500                                          0.01707            0.05629  
+296  11707  HDESHDRLMFINRD  HHHG           0.0            1.0                  1.674                        2.031          3236                         1.01550                                          0.01541            0.05463  
+297  11707  HDESHDRLMFINRD  HHHG           0.0            1.0                  1.674                        2.031          3237                         1.01550                                          0.01541            0.05463
+
+--------------------------------------------------
+
 # do the quantity failures sit on the duplicate keys?
 mop = dataframes['SourceMop'].groupby(keys)['QUANTITY'].sum().rename('MOP')
 q = d.groupby(keys)['QUANTITY'].sum().rename('DISP').reset_index().merge(mop.reset_index(), on=keys, how='left')
 badq = q[q.DISP != q.MOP]
 print(badq.merge(dk[keys].drop_duplicates().assign(is_dup=1), on=keys, how='left'))
+
+returned 
+
+DEALER             SKU PLANT  DISP  MOP  is_dup  
+0  11594  HXTRPASSCFIABO  HHHG   4.0  1.0       1  
+1  11594  HXTRPSSSCFIABO  HHHG  12.0  6.0       1  
+2  11707  HDESHDRLMFIMNB  HHHG  20.0  5.0       1
 
 # production stock mismatches: both sources side by side
 cell4_src = session.sql("""select PLANT, SKU, SUM(Plan) TODAY_PRODUCTION_STOCK from (
@@ -265,3 +294,28 @@ cell4_src = session.sql("""select PLANT, SKU, SUM(Plan) TODAY_PRODUCTION_STOCK f
 v = dataframes['SourcePlantProd'].rename(columns={'TODAY_PRODUCTION_STOCK':'VALIDATOR_SRC'})
 c = cell4_src.merge(v, on=['PLANT','SKU'], how='outer').fillna(0)
 print(c[c.TODAY_PRODUCTION_STOCK != c.VALIDATOR_SRC].head(20))
+
+returned 
+
+PLANT             SKU  TODAY_PRODUCTION_STOCK  VALIDATOR_SRC  
+0   HE6C  V3GOBSEFCELMGM                     0.0          580.0  
+1   HE6C  V3GOBSEFCELPEB                     0.0          461.0  
+2   HE6C  V3GODRARCELMGM                     0.0          150.0  
+3   HE6C  V3GODRARCELPEB                     0.0          130.0  
+4   HE6C  V3GODRCRCELPEB                     0.0           15.0  
+5   HE6C  V3GOJRCRCELMNB                     0.0           15.0  
+6   HE6C  V3PLDSARCELMGM                     0.0          170.0  
+7   HE6C  V3PLDSARCELMNB                     0.0           50.0  
+8   HE6C  V3PLDSARCELPEB                     0.0          110.0  
+9   HE6C  V3PLJSCRCELMGM                     0.0           35.0  
+10  HE6C  V3PLJSCRCELPEB                     0.0           55.0  
+13  HHHD  HDLFZDRSCFIBBG                   125.0          225.0  
+14  HHHD  HDLHADRSCFISBK                     0.0          100.0  
+17  HHHD  HDLHCDRSCFIBLK                     0.0          743.0  
+19  HHHD  HDLXBIRSCFIBKB                     0.0          100.0  
+20  HHHD  HDLXBIRSCFIBKG                     0.0          100.0  
+21  HHHD  HDLXBIRSCFIBKR                     0.0          200.0  
+22  HHHD  HGLATDRSCFIBMS                    84.0          184.0  
+23  HHHD  HGLATDRSCFIBSR                     0.0          100.0  
+24  HHHD  HGLATDRSCFITBK                     0.0          100.0
+--------------------------------------------------------------
