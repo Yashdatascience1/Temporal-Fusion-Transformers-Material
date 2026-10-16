@@ -50,3 +50,34 @@ dup keys in Dispatchable: 24
 print(session.sql("SELECT MODEL, COUNT(*) N FROM MOP_DATABASE.DISPATCH_AUTOMATION_OBL.MODEL_LOAD_SIZE GROUP BY 1 HAVING COUNT(*)>1").to_pandas())
 print(d[d.duplicated(keys, keep=False)].sort_values(keys)[keys+['MODEL','LOAD_SIZE_MULTIPLES','FINAL_B2G','MAX_QTY']].head(24))
 
+returned
+
+Empty DataFrame  
+Columns: [MODEL, N]  
+Index: []  
+    DEALER             SKU PLANT  ... LOAD_SIZE_MULTIPLES FINAL_B2G  MAX_QTY  
+269  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+270  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+281  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+282  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+310  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+311  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+312  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+313  11594  HXTRPASSCFIABO  HHHG  ...                  4X       1.0      1.0  
+235  11594  HXTRPSSSCFIABO  HHHG  ...                  4X       2.0      2.0  
+236  11594  HXTRPSSSCFIABO  HHHG  ...                  4X       2.0      2.0  
+237  11594  HXTRPSSSCFIABO  HHHG  ...                  4X       2.0      2.0  
+238  11594  HXTRPSSSCFIABO  HHHG  ...                  4X       2.0      2.0  
+212  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+213  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+214  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+215  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+220  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+221  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+222  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+223  11707  HDESHDRLMFIMNB  HHHG  ...                  4X       3.0      3.0  
+257  11707  HDESHDRLMFINRD  HHHG  ...                  4X       1.0      1.0  
+258  11707  HDESHDRLMFINRD  HHHG  ...                  4X       1.0      1.0  
+259  11707  HDESHDRLMFINRD  HHHG  ...                  4X       1.0      1.0  
+260  11707  HDESHDRLMFINRD  HHHG  ...                  4X       1.0      1.0  
+[24 rows x 7 columns]
