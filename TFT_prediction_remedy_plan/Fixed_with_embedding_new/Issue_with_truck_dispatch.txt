@@ -89,6 +89,13 @@ Index: []
 x = dataframes['MinTrucks'].groupby(keys)['UNITS_TO_BE_DISPATCHED'].sum().reset_index()
 print(x[((x.DEALER=='11594')&(x.SKU.isin(['HXTRPASSCFIABO','HXTRPSSSCFIABO'])))|((x.DEALER=='11707')&(x.SKU=='HDESHDRLMFIMNB'))])
 
+returned 
+
+DEALER             SKU PLANT  UNITS_TO_BE_DISPATCHED  
+568  11594  HXTRPASSCFIABO  HHHG                     8.0  
+569  11594  HXTRPSSSCFIABO  HHHG                     8.0  
+650  11707  HDESHDRLMFIMNB  HHHG                    12.0
+
 base = "MOP_DATABASE.DISPATCH_AUTOMATION_OBL"
 k = ['DEALER','SKU','PLANT']
 for t in ['Daily_dispatch_prioritisation','Daily_Unconstrained_file','OpenOrdersBlocked',
@@ -111,3 +118,18 @@ print(session.sql("""SELECT COUNT(*) AS ROWS_, COUNT(DISTINCT PARENT_DEALER_CODE
 print(session.sql("""SELECT COUNT(*) AS ROWS_, COUNT(DISTINCT X_DEALER_CODE_HIER) AS DEALERS_ FROM (
     SELECT DISTINCT X_DEALER_CODE_HIER, PAR_ORG_NAME FROM FIVETRAN_DATABASE.ORACLE_LDP_OLAP_SCHEMA.WC_INT_ORG_DH
     WHERE X_DEALER_CODE_HIER IS NOT NULL)""").to_pandas())
+
+returned
+
+Daily_dispatch_prioritisation rows: 46443 | dup keys: 64 | full-row dups: 0 | cycles: [np.int8(5)]  
+Daily_Unconstrained_file rows: 46379 | dup keys: 0 | full-row dups: 0 | cycles: [np.int8(5)]  
+OpenOrdersBlocked rows: 3352 | dup keys: 0 | full-row dups: 0 | cycles: [np.int8(5)]  
+Daily_dispatch_unblocked_table rows: 36365 | dup keys: 55 | full-row dups: 0 | cycles: [np.int8(5)]  
+DailyDispatchableInstances rows: 2077 | dup keys: 24 | full-row dups: 0 | cycles: [np.int8(5)]  
+PlantB2GTable rows: 46379 | dup keys: 0  
+   DUPS  
+0    59  
+    ROWS_   KEYS_  
+0  131468  131385  
+   ROWS_  DEALERS_  
+0  11894     11894
