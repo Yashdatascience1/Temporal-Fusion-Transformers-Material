@@ -81,3 +81,33 @@ Index: []
 259  11707  HDESHDRLMFINRD  HHHG  ...                  4X       1.0      1.0  
 260  11707  HDESHDRLMFINRD  HHHG  ...                  4X       1.0      1.0  
 [24 rows x 7 columns]
+
+
+
+--------------------------------------
+
+x = dataframes['MinTrucks'].groupby(keys)['UNITS_TO_BE_DISPATCHED'].sum().reset_index()
+print(x[((x.DEALER=='11594')&(x.SKU.isin(['HXTRPASSCFIABO','HXTRPSSSCFIABO'])))|((x.DEALER=='11707')&(x.SKU=='HDESHDRLMFIMNB'))])
+
+base = "MOP_DATABASE.DISPATCH_AUTOMATION_OBL"
+k = ['DEALER','SKU','PLANT']
+for t in ['Daily_dispatch_prioritisation','Daily_Unconstrained_file','OpenOrdersBlocked',
+          'Daily_dispatch_unblocked_table','DailyDispatchableInstances']:
+    df = session.sql(f"""SELECT * FROM {base}.{t} x WHERE (x.run_date, x.run_cycle_id) IN (
+        SELECT run_date, MAX(run_cycle_id) FROM {base}.{t}
+        WHERE run_date=(SELECT MAX(run_date) FROM {base}.{t}) GROUP BY run_date)""").to_pandas()
+    print(t, "rows:", len(df), "| dup keys:", df.duplicated(k).sum(), "| full-row dups:", df.duplicated().sum(),
+          "| cycles:", sorted(df.RUN_CYCLE_ID.unique()))
+pb = session.sql(f"SELECT * FROM {base}.PlantB2GTable").to_pandas()
+print("PlantB2GTable rows:", len(pb), "| dup keys:", pb.duplicated(k).sum())
+
+# source tables read by cell1
+print(session.sql(f"SELECT COUNT(*)-COUNT(DISTINCT PARENT_DEALER_CODE||SKU) AS DUPS FROM {base}.PREDICTION_SKU_DATA WHERE PLANNING_MONTH='2026-10-01'").to_pandas())
+print(session.sql("""SELECT COUNT(*) AS ROWS_, COUNT(DISTINCT PARENT_DEALER_CODE||SKU) AS KEYS_ FROM (
+    SELECT DISTINCT PARENT_DEALER_CODE, SKU, ROUND(LEAST(SAFETY_STOCK, PREDICTED_SALES_SKU*3)) AS SAFETY_STOCK, SAFETY_STOCK_DAYS
+    FROM MOP_DATABASE.SOQ.SOQ_DATA_FINAL_VERSION_WITH_AO_VERSION_4
+    WHERE PLANNING_MONTH='2026-10-01' AND STOCK_DATE_PERIOD='end' AND DEMAND_VARIABILITY_TYPE='SKU_BASED'
+      AND SERVICE_LEVEL=80 AND run_version=57)""").to_pandas())
+print(session.sql("""SELECT COUNT(*) AS ROWS_, COUNT(DISTINCT X_DEALER_CODE_HIER) AS DEALERS_ FROM (
+    SELECT DISTINCT X_DEALER_CODE_HIER, PAR_ORG_NAME FROM FIVETRAN_DATABASE.ORACLE_LDP_OLAP_SCHEMA.WC_INT_ORG_DH
+    WHERE X_DEALER_CODE_HIER IS NOT NULL)""").to_pandas())
