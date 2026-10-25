@@ -134,3 +134,15 @@ numerical_cols are
 
 datetime_cols ['CAL_DATE']
 
+
+       TOTAL_ADSTOCK_SPEND_PER_10K  TOTAL_SPEND_PER_10K  PETROL_PRICE_INDEX
+count                44,168,136.00        44,168,136.00       44,168,136.00
+mean                        603.48               310.11               99.62
+std                         676.53               499.78               11.69
+min                          39.93                15.65               88.10
+25%                         166.33                51.58               91.60
+50%                         344.93                99.65               96.10
+75%                         787.26               304.41               98.90
+max                       3,928.12             3,406.46              124.80
+
+
