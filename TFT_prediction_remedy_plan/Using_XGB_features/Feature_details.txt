@@ -39,7 +39,7 @@ for field in schema.fields:
 
 string_cols
 
-['DEALER_STATE',
+[
  'MODEL_FAMILY',
  'DEALER_CITY',
  'PARENT_DEALER_CODE_MODEL_FAMILY',
