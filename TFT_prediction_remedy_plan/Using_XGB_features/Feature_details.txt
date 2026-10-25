@@ -1,0 +1,136 @@
+TRAIN_TIME_FRAME : Apr 1st, 2023 to Jun 14th, 2026 
+
+VAL_TIME_FRAME : Jun 15th, 2026 to Sep 30th, 2026 
+
+FORECAST_TIME_FRAME : Oct 1st, 2026 to Dec 31st, 2026
+
+Using the code below - 
+
+from snowflake.snowpark.types import (
+    StringType, IntegerType, LongType, ShortType, FloatType, DoubleType, DecimalType,
+    BinaryType, BooleanType, DateType, TimestampType, TimeType, VariantType, ArrayType, MapType
+)
+
+schema = df.schema
+
+string_cols = []
+numerical_cols = []
+binary_cols = []
+categorical_cols = []
+datetime_cols = []
+
+for field in schema.fields:
+    dtype = field.datatype
+    name = field.name
+
+    if isinstance(dtype, StringType):
+        string_cols.append(name)
+    elif isinstance(dtype, (IntegerType, LongType, ShortType, FloatType, DoubleType, DecimalType)):
+        numerical_cols.append(name)
+    elif isinstance(dtype, BinaryType):
+        binary_cols.append(name)
+    elif isinstance(dtype, BooleanType):
+        categorical_cols.append(name)
+    elif isinstance(dtype, (DateType, TimestampType, TimeType)):
+        datetime_cols.append(name)
+    elif isinstance(dtype, (VariantType, ArrayType, MapType)):
+        categorical_cols.append(name)
+
+
+string_cols
+
+['DEALER_STATE',
+ 'MODEL_FAMILY',
+ 'DEALER_CITY',
+ 'PARENT_DEALER_CODE_MODEL_FAMILY',
+ 'PARENT_DEALER_CODE',
+ 'DAY_OF_THE_WEEK',
+ 'BRAKE_TYPE',
+ 'IGNITION_TYPE',
+ 'WHEEL_TYPE',
+ 'COLOUR',
+ 'X_CITY_CATEGORY',
+ 'ZONAL_OFFICE_NAME']
+
+
+numerical_cols are
+
+['YEAR',
+ 'MONTH',
+ 'DAY_OF_THE_MONTH',
+ 'NET_SALES',
+ 'HARTALIK_TEEJ',
+ 'GANESH_CHATURTHI',
+ 'JANMASHTAMI',
+ 'VISHWAKARMA_PUJA',
+ 'KARWA_CHAUTH',
+ 'ONAM',
+ '"N-16"',
+ '"N-15"',
+ '"N-14"',
+ '"N-13"',
+ '"N-12"',
+ '"N-11"',
+ '"N-10"',
+ '"N-9"',
+ '"N-8"',
+ '"N-7"',
+ '"N-6"',
+ '"N-5"',
+ '"N-4"',
+ '"N-3"',
+ '"N-2"',
+ '"N-1"',
+ 'N',
+ '"N+1"',
+ '"N+2"',
+ '"N+3"',
+ '"N+4"',
+ '"N+5"',
+ '"N+6"',
+ '"N+7"',
+ '"N+8"',
+ '"N+9"',
+ '"N+10"',
+ '"D-3"',
+ '"D-2"',
+ '"D-1"',
+ 'D',
+ '"D+1"',
+ '"D+2"',
+ '"D+3"',
+ '"D+4"',
+ '"D+5"',
+ '"D+6"',
+ 'HANUMAN_JAYANTI',
+ 'AKSHYA_TRITIYA',
+ 'BUDDHA_PURNIMA',
+ 'GANGA_DUSSEHRA',
+ 'JAGANNATH_RATHYATRA',
+ 'GURU_PURNIMA',
+ 'NAG_PANCHAMI',
+ 'RAKSHA_BANDHAN',
+ 'MARRIAGE_DAY',
+ 'IS_TUESDAY',
+ 'IS_WEEKEND',
+ 'TOTAL_SPEND_PER_10K',
+ 'TOTAL_ADSTOCK_SPEND_PER_10K',
+ 'IS_RABI_HARVEST_WINDOW',
+ 'GOVATSA_DWADASHI',
+ 'CHAITRA_NAVRATRI',
+ 'GUDI_PADWA',
+ 'VASANT_PANCHAMI',
+ 'PETROL_PRICE_INDEX',
+ 'UGADI',
+ 'EID_UL_FITR',
+ 'DEVUTTHANA_EKADASHI',
+ 'TULASI_VIVAH',
+ 'MAKARA_SANKRANTI',
+ 'PONGAL',
+ 'LOHRI',
+ 'CHRISTMAS',
+ 'IS_KHARIF_HARVEST_WINDOW',
+ 'POST_GST_CUT']
+
+datetime_cols ['CAL_DATE']
+
