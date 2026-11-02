@@ -1,0 +1,2 @@
+### Calendar through Dec 31
+Same recipe as Step 1. Festival flags cannot be filled forward — the source table must already hold them for Dec 11–31.
