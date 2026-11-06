@@ -1,0 +1,54 @@
+  explained series 768-1000 (1000/1000)
+*** UNMATCHED variable names (fix clean_name / group_of): ['future_covariate_41', 'future_covariate_47', 'future_covariate_26', 'future_covariate_4', 'future_covariate_16', 'future_covariate_2', 'future_covariate_66', 'future_covariate_61', 'future_covariate_63', 'future_covariate_49']
+
+=== DECODER, 2026-11-06 (top 20); uniform = 1.28% ===
+           variable  importance_pct_day  importance_pct_avg     group  x_uniform_day  day_minus_avg
+future_covariate_41              15.071               0.960 UNMATCHED         11.755         14.111
+future_covariate_47               8.384              11.004 UNMATCHED          6.539         -2.620
+future_covariate_26               7.641               0.719 UNMATCHED          5.960          6.922
+ future_covariate_4               4.607               0.913 UNMATCHED          3.594          3.695
+future_covariate_16               3.655               1.184 UNMATCHED          2.851          2.471
+ future_covariate_2               3.512               4.093 UNMATCHED          2.739         -0.581
+future_covariate_66               3.134               0.979 UNMATCHED          2.444          2.155
+future_covariate_61               3.021               1.067 UNMATCHED          2.356          1.954
+future_covariate_63               2.564               1.755 UNMATCHED          2.000          0.809
+future_covariate_49               1.684               0.732 UNMATCHED          1.314          0.952
+future_covariate_55               1.679               1.118 UNMATCHED          1.310          0.561
+future_covariate_75               1.665               1.824 UNMATCHED          1.299         -0.159
+future_covariate_11               1.607               0.385 UNMATCHED          1.253          1.222
+future_covariate_77               1.465               0.684 UNMATCHED          1.143          0.781
+future_covariate_73               1.374               0.722 UNMATCHED          1.072          0.653
+future_covariate_76               1.307               1.233 UNMATCHED          1.019          0.074
+future_covariate_31               1.238               1.148 UNMATCHED          0.966          0.090
+future_covariate_70               1.145               3.848 UNMATCHED          0.893         -2.703
+future_covariate_44               1.126               1.343 UNMATCHED          0.879         -0.217
+ future_covariate_6               1.076               0.887 UNMATCHED          0.839          0.189
+
+=== DECODER by group: this day vs average over the 92 days (% summed) ===
+           importance_pct_day  importance_pct_avg
+group                                            
+UNMATCHED               100.0               100.0
+
+=== ENCODER (window-level; same for every forecast day) top 10 ===
+   part               variable  importance_pct                       group
+encoder     PETROL_PRICE_INDEX          10.854                      petrol
+encoder     add_relative_index          10.670              relative index
+encoder              NET_SALES           7.340 past sales (target history)
+encoder                    D-1           4.278        festive-window flags
+encoder    TOTAL_SPEND_PER_10K           4.135          spend (per-series)
+encoder                    D-2           3.641        festive-window flags
+encoder             GUDI_PADWA           2.641          other binary flags
+encoder                DOW_COS           2.178   calendar (dow, month-end)
+encoder IS_RABI_HARVEST_WINDOW           2.167          other binary flags
+encoder           IS_MONTH_END           1.860   calendar (dow, month-end)
+
+=== STATIC (same for every forecast day) ===
+  part                   variable  importance_pct
+static             COLOUR_statcov       21.332001
+static  ZONAL_OFFICE_NAME_statcov       19.981001
+static      IGNITION_TYPE_statcov       15.269000
+static       MODEL_FAMILY_statcov       14.873000
+static         BRAKE_TYPE_statcov        9.858000
+static PARENT_DEALER_CODE_statcov        8.824000
+static        DEALER_CITY_statcov        8.228000
+static         WHEEL_TYPE_statcov        1.635000
