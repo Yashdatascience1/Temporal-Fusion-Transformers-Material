@@ -1,0 +1,105 @@
+explained series 768-1000 (1000/1000)
+{'decoder': 78, 'encoder': 79, 'static': 8} variables per part
+{'decoder': 100.0, 'encoder': 100.0, 'static': 100.0} (sum per part)
+
+=== ALL variables (% of VSN weight within each part) ===
+                      group                    variable  decoder  encoder  static
+  calendar (dow, month-end)                     DOW_SIN    3.848    1.357     NaN
+  calendar (dow, month-end)                     DOW_COS    1.195    2.178     NaN
+  calendar (dow, month-end)                IS_MONTH_END    1.095    1.860     NaN
+  calendar (dow, month-end)           DAYS_TO_MONTH_END    0.836    1.442     NaN
+  calendar (dow, month-end)              IS_MONTH_START    0.723    0.978     NaN
+       festive-window flags                         N+5    3.879    0.261     NaN
+       festive-window flags                           N    3.394    0.635     NaN
+       festive-window flags                         D-2    2.737    3.641     NaN
+       festive-window flags                         N+6    2.257    0.506     NaN
+       festive-window flags                         N+8    1.908    0.543     NaN
+       festive-window flags                         N-3    1.703    0.899     NaN
+       festive-window flags                         N-5    1.664    1.842     NaN
+       festive-window flags                         D+2    1.473    0.952     NaN
+       festive-window flags                        N+10    1.402    0.735     NaN
+       festive-window flags                        N-14    1.339    1.261     NaN
+       festive-window flags                         D-1    1.208    4.278     NaN
+       festive-window flags                           D    1.203    0.305     NaN
+       festive-window flags                         D+6    1.203    0.401     NaN
+       festive-window flags                         N-6    1.184    0.666     NaN
+       festive-window flags                         N-9    1.173    0.317     NaN
+       festive-window flags                         N+9    1.145    0.804     NaN
+       festive-window flags                         N-7    1.130    0.748     NaN
+       festive-window flags                        N-15    1.105    0.540     NaN
+       festive-window flags                        N-10    0.998    0.408     NaN
+       festive-window flags                         D+5    0.961    0.870     NaN
+       festive-window flags                        N-12    0.949    0.701     NaN
+       festive-window flags                        N-16    0.886    0.451     NaN
+       festive-window flags                         N+2    0.820    1.538     NaN
+       festive-window flags                         N-2    0.776    0.490     NaN
+       festive-window flags                         D+1    0.742    0.254     NaN
+       festive-window flags                         N+4    0.721    0.404     NaN
+       festive-window flags                         N+7    0.647    0.800     NaN
+       festive-window flags                         N-1    0.632    1.254     NaN
+       festive-window flags                         D-3    0.538    1.029     NaN
+       festive-window flags                         N-4    0.531    0.965     NaN
+       festive-window flags                         D+4    0.525    0.323     NaN
+       festive-window flags                         N+3    0.430    0.550     NaN
+       festive-window flags                        N-11    0.386    1.396     NaN
+       festive-window flags                         N-8    0.379    0.641     NaN
+       festive-window flags                         N+1    0.281    0.698     NaN
+       festive-window flags                         D+3    0.183    1.675     NaN
+       festive-window flags                        N-13    0.169    0.278     NaN
+         other binary flags         JAGANNATH_RATHYATRA   11.006    0.288     NaN
+         other binary flags                 JANMASHTAMI    4.091    0.815     NaN
+         other binary flags                MARRIAGE_DAY    3.190    1.074     NaN
+         other binary flags                GURU_PURNIMA    2.219    1.542     NaN
+         other binary flags                      PONGAL    1.809    0.071     NaN
+         other binary flags                 EID_UL_FITR    1.798    0.947     NaN
+         other binary flags            MAKARA_SANKRANTI    1.754    0.253     NaN
+         other binary flags              AKSHYA_TRITIYA    1.343    0.356     NaN
+         other binary flags                       LOHRI    1.172    1.501     NaN
+         other binary flags            GOVATSA_DWADASHI    1.118    0.104     NaN
+         other binary flags                TULASI_VIVAH    1.079    0.513     NaN
+         other binary flags         DEVUTTHANA_EKADASHI    1.067    1.163     NaN
+         other binary flags                   CHRISTMAS    0.977    1.024     NaN
+         other binary flags                  IS_WEEKEND    0.958    0.970     NaN
+         other binary flags    IS_KHARIF_HARVEST_WINDOW    0.957    1.437     NaN
+         other binary flags      IS_RABI_HARVEST_WINDOW    0.913    2.167     NaN
+         other binary flags                KARWA_CHAUTH    0.912    0.342     NaN
+         other binary flags              GANGA_DUSSEHRA    0.844    0.548     NaN
+         other binary flags                  IS_TUESDAY    0.832    0.188     NaN
+         other binary flags              RAKSHA_BANDHAN    0.822    0.545     NaN
+         other binary flags                NAG_PANCHAMI    0.731    0.664     NaN
+         other binary flags            GANESH_CHATURTHI    0.729    0.637     NaN
+         other binary flags                POST_GST_CUT    0.718    0.163     NaN
+         other binary flags                       UGADI    0.690    0.742     NaN
+         other binary flags             VASANT_PANCHAMI    0.663    0.409     NaN
+         other binary flags                  GUDI_PADWA    0.649    2.641     NaN
+         other binary flags             HANUMAN_JAYANTI    0.521    0.651     NaN
+         other binary flags            CHAITRA_NAVRATRI    0.497    0.683     NaN
+         other binary flags                        ONAM    0.308    0.912     NaN
+         other binary flags               HARTALIK_TEEJ    0.308    0.125     NaN
+         other binary flags              BUDDHA_PURNIMA    0.220    0.715     NaN
+         other binary flags            VISHWAKARMA_PUJA    0.180    0.491     NaN
+past sales (target history)                   NET_SALES      NaN    7.340     NaN
+                     petrol          PETROL_PRICE_INDEX    0.830   10.854     NaN
+             relative index          add_relative_index    0.685   10.670     NaN
+         spend (per-series)         TOTAL_SPEND_PER_10K    1.823    4.135     NaN
+         spend (per-series) TOTAL_ADSTOCK_SPEND_PER_10K    1.234    0.444     NaN
+          static (embedded)          BRAKE_TYPE_statcov      NaN      NaN   9.858
+          static (embedded)              COLOUR_statcov      NaN      NaN  21.332
+          static (embedded)         DEALER_CITY_statcov      NaN      NaN   8.228
+          static (embedded)       IGNITION_TYPE_statcov      NaN      NaN  15.269
+          static (embedded)        MODEL_FAMILY_statcov      NaN      NaN  14.873
+          static (embedded)  PARENT_DEALER_CODE_statcov      NaN      NaN   8.824
+          static (embedded)          WHEEL_TYPE_statcov      NaN      NaN   1.635
+          static (embedded)   ZONAL_OFFICE_NAME_statcov      NaN      NaN  19.981
+
+=== By group ===
+part                         decoder  encoder  static  n_vars_decoder  n_vars_encoder  n_vars_static
+group                                                                                               
+calendar (dow, month-end)       7.70     7.82     0.0               5               5              0
+festive-window flags           42.66    34.06     0.0              37              37              0
+other binary flags             45.07    24.68     0.0              32              32              0
+past sales (target history)     0.00     7.34     0.0               0               1              0
+petrol                          0.83    10.85     0.0               1               1              0
+relative index                  0.68    10.67     0.0               1               1              0
+spend (per-series)              3.06     4.58     0.0               2               2              0
+static (embedded)               0.00     0.00   100.0               0               0              8
