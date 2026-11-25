@@ -1,0 +1,22 @@
+# Requirements for 04_chronos2_experiment.ipynb (Chronos-2, zero-shot)
+# Python 3.10 - 3.12 recommended.
+#
+# Install torch FIRST if you have an NVIDIA GPU, using the command from
+# https://pytorch.org/get-started/locally/ (pick your CUDA version).
+# For CPU-only, the plain "torch" line below is enough.
+
+torch
+chronos-forecasting>=2.0   # provides `from chronos import Chronos2Pipeline`
+pandas
+numpy
+matplotlib
+
+# Needed to run the notebook
+jupyter
+ipykernel
+
+# Chronos-2 weights are downloaded from Hugging Face on first run
+# (pulled in by chronos-forecasting, listed here to be explicit)
+transformers
+accelerate
+huggingface_hub
