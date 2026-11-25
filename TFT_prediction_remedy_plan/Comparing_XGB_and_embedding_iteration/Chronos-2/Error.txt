@@ -1,0 +1,87 @@
+def safe_name(k):
+    return str(k).replace("<>", "_").replace("/", "_").replace("\\", "_")
+
+series_table = pd.read_parquet(os.path.join(CACHE_DIR, "series_table.parquet"))
+series_table = series_table[series_table["total_sales"] > 0].reset_index(drop=True)      # same series the TFT uses
+SPEND_PATHS  = np.load(os.path.join(CACHE_DIR, "spend_paths.npy"))                        # (paths, N_FULL, 2)
+assert SPEND_PATHS.shape[1] == N_FULL
+SPEND_COLS   = list(ROLES["series_covariates"])
+STATICS      = list(ROLES["static_covariates"])
+print(f"live series: {len(series_table):,} | spend paths: {len(SPEND_PATHS)}")
+
+N_AFTER_TRAIN = (VAL_END - TRAIN_END).days                 # days of val_sales that lie after TRAIN_END (108)
+def load_panel(table):
+    """Sales history (n, N_HIST) for the series in `table`, plus their spend-path numbers."""
+    Y = np.empty((len(table), N_HIST), dtype=np.float32)
+    for i, k in enumerate(table["key"]):
+        with np.load(os.path.join(CACHE_DIR, f"{safe_name(k)}.npz")) as z:
+            tr, va = z["train_sales"], z["val_sales"]
+        assert len(tr) == (TRAIN_END - TRAIN_START).days + 1, f"{k}: unexpected train length {len(tr)}"
+        Y[i] = np.concatenate([tr, va[-N_AFTER_TRAIN:]])
+    return dict(keys=table["key"].to_numpy(), Y=Y, paths=table["spend_path"].to_numpy().astype(int),
+                meta=table[STATICS].reset_index(drop=True))
+
+# ---- calendar ------------------------------------------------------------------------------
+cal = pd.read_parquet(os.path.join(BASE, ROLES["calendar_path"]))
+cal[time_col] = pd.to_datetime(cal[time_col])
+cal = cal.set_index(time_col).loc[DAYS_FULL].astype("float32")
+blocks = ROLES["festive_blocks"]
+cal["N_ANY"], cal["D_ANY"] = cal[blocks["N"]].max(axis=1), cal[blocks["D"]].max(axis=1)
+
+def signed_offset(dates, flag_days, clip=45):
+    """days from each date to the nearest flag day (positive = date is after the festival)."""
+    d = (dates.values[:, None] - pd.DatetimeIndex(flag_days).values[None, :]).astype("timedelta64[D]").astype(int)
+    nearest = np.abs(d).argmin(axis=1)
+    return np.clip(d[np.arange(len(d)), nearest], -clip, clip).astype("float32")
+
+N_DAYS = cal.index[cal["N"] == 1]
+D_DAYS = cal.index[cal["D"] == 1]
+cal["N_OFFSET"] = signed_offset(cal.index, N_DAYS)
+cal["D_OFFSET"] = signed_offset(cal.index, D_DAYS)
+print("Navratri days:", [d.date().isoformat() for d in N_DAYS])
+print("Diwali days  :", [d.date().isoformat() for d in D_DAYS])
+
+# ---- covariate sets: (calendar columns, include the two spend columns?) ----------------------
+_cal_small = [c for c in ["N_ANY", "D_ANY", "N_OFFSET", "D_OFFSET", "IS_TUESDAY", "IS_WEEKEND", "POST_GST_CUT",
+                          "DOW_SIN", "DOW_COS", "IS_MONTH_END", "IS_MONTH_START", "DAYS_TO_MONTH_END"] if c in cal.columns]
+COV_SETS = {
+    "none":            ([], False),
+    "calendar":        (_cal_small, False),
+    "calendar+spend":  (_cal_small, True),
+    "all_flags+spend": (list(ROLES["shared_covariates"]) + ["N_OFFSET", "D_OFFSET"], True),
+}
+for k in RUN_SETS:
+    assert k in COV_SETS, k
+    print(f"{k:16s}: {len(COV_SETS[k][0])} calendar columns + {len(SPEND_COLS) if COV_SETS[k][1] else 0} spend columns")
+
+
+the above code returned below error.
+
+
+File ~\Desktop\Amazon-Chronos\amazon_chronos\Lib\site-packages\pandas\io\parquet.py:141, in _get_path_or_handle(path, fs, storage_options, mode, is_dir)
+    131 handles = None
+    132 if (
+    133     not fs
+    134     and not is_dir
+   (...)    139     # fsspec resources can also point to directories
+    140     # this branch is used for example when reading from non-fsspec URLs
+--> 141     handles = get_handle(
+    142         path_or_handle, mode, is_text=False, storage_options=storage_options
+    143     )
+    144     fs = None
+    145     path_or_handle = handles.handle
+
+File ~\Desktop\Amazon-Chronos\amazon_chronos\Lib\site-packages\pandas\io\common.py:882, in get_handle(path_or_buf, mode, encoding, compression, memory_map, is_text, errors, storage_options)
+    873         handle = open(
+    874             handle,
+    875             ioargs.mode,
+   (...)    878             newline="",
+    879         )
+    880     else:
+    881         # Binary mode
+--> 882         handle = open(handle, ioargs.mode)
+    883     handles.append(handle)
+    885 # Convert BytesIO or file objects passed with an encoding
+
+FileNotFoundError: [Errno 2] No such file or directory: 'c:\\Users\\g0004878\\Desktop\\Amazon-Chronos\\series_cache\\series_table.parquet'
+

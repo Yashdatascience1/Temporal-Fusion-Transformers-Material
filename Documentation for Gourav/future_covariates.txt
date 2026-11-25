@@ -1,49 +1,28 @@
-['DUSSEHRA_(VIJAYADASHAMI)_DAYS',
- 'NUM_FESTIVE_DAYS_MONTH',
- 'AKSHAYA_TRITIYA_DAYS',
- 'BHAI_DOOJ_DAYS',
- 'BUDDHA_PURNIMA_DAYS',
- 'CHHATH_PUJA_DAYS',
- 'DHANTERAS_DAYS',
- 'DIWALI_DAYS',
- 'EID_UL_FITR_DAYS',
- 'GANESH_CHATURTHI_DAYS',
- 'GANGA_DUSSEHRA_DAYS',
- 'GOVARDHAN_POOJA_DAYS',
- 'GURU_PURNIMA_DAYS',
- 'HANUMAN_JAYANTI_DAYS',
- 'HARTALIK_TEEJ_DAYS',
- 'HOLI_DAYS',
- 'HOLIKA_DAHAN_DAYS',
- 'JAGANNATH_RATHYATRA_DAYS',
- 'JANMASHTAMI_DAYS',
- 'KARWA_CHAUTH_DAYS',
- 'LOHRI_DAYS',
- 'MAHA_SHIVARATRI_DAYS',
- 'MAKAR_SANKRANTI_PONGAL_DAYS',
- 'NAG_PANCHAMI_DAYS',
- 'NAVRATRI_DAYS',
- 'NEW_YEAR_DAYS',
- 'ONAM_DAYS',
- 'PITRAPAKSHA_DAYS',
- 'RAKSHA_BANDHAN_DAYS',
- 'REPUBLIC_DAY_DAYS',
- 'VASANT_PANCHAMI_DAYS',
- 'VISHWAKARMA_PUJA_DAYS',
- 'MARRIAGE_DAYS',
- 'FESTIVE_PHASE_I',
- 'FESTIVE_PHASE_II',
- 'FESTIVE_PHASE_III',
- 'PITRU_PAKSH',
- 'TOTAL_DAYS_FESTIVE_PHASE_I',
- 'TOTAL_DAYS_FESTIVE_PHASE_II',
- 'TOTAL_DAYS_FESTIVE_PHASE_III',
- 'TOTAL_DAYS_PITRU_PAKSH',
- 'PROP_FESTIVE_PHASE_I',
- 'PROP_EVENT_FESTIVE_PHASE_I',
- 'PROP_FESTIVE_PHASE_II',
- 'PROP_EVENT_FESTIVE_PHASE_II',
- 'PROP_FESTIVE_PHASE_III',
- 'PROP_EVENT_FESTIVE_PHASE_III',
- 'PROP_PITRU_PAKSH',
- 'PROP_EVENT_PITRU_PAKSH']
+#Iteration #1
+- Apr'23 - Dec'25 - Training 
+- Jan'26 - Mar'26 - Validation 
+- Apr'26 to June'26 - Test 
+
+: Good results for Apr'26 and May'26. June'26 - 55K (Series A results) - (Train loss - 0.0242 and Validation loss - 0.040)
+
+
+#Iteration #2 (Original covariates)
+- Apr'23 - Feb'26 - Training 
+- Mar'26 to May'26 - Validation
+- June'26 to August'26 - Test (June rose to 2.79 lacs, July : 55K, August : 53K) - (To be noted down)
+
+
+
+Back-testing to be done : 
+
+June and July and August separately decoder feature importance
+
+- Apr'23 to Feb'24 : Training
+- Mar'24 to May'24 : Validation 
+- June'24 to August'24 : Test 
+
+
+- Apr'23 to Feb'25 : Training
+- Mar'25 to May'25 : Validation 
+- June'25 to August'25 : Test 
+
